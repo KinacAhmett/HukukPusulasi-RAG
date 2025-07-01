@@ -6,6 +6,8 @@ import os
 import hashlib # Dosya içeriği hash'i için
 import mimetypes # Dosya türü tahmin etmek için
 import re # Dosya adı temizleme için
+from fpdf import FPDF
+import html
 
 # User agent tanımı
 HEADERS = {
@@ -280,10 +282,78 @@ def clean_filename(filename):
     cleaned_name = re.sub(r'\s+', ' ', cleaned_name).strip()
     return cleaned_name    
 
+def find_first_document_link_in_page(page_url, base_url):
+    """
+    Bir web sayfasındaki ilk PDF veya Word dosyası linkini bulur ve tam URL olarak döndürür.
+    """
+    try:
+        response = requests.get(page_url, headers=HEADERS, timeout=TIMEOUT_SHORT)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        # PDF ve Word dosya uzantılarını arıyoruz
+        for ext in ['.pdf', '.doc', '.docx']:
+            link = soup.find('a', href=lambda href: href and href.lower().endswith(ext))
+            if link:
+                return urljoin(base_url, link['href'])
+        # Alternatif olarak gömülü PDF (iframe/embed) de olabilir
+        for tag in soup.find_all(['iframe', 'embed']):
+            src = tag.get('src')
+            if src and any(src.lower().endswith(ext) for ext in ['.pdf', '.doc', '.docx']):
+                return urljoin(base_url, src)
+    except Exception as e:
+        print(f"Sayfa içindeki belge linki aranırken hata oluştu: {e}")
+    return None
+
+# --- Yeni Yardımcı Fonksiyon: HTML Metnini PDF'e Dönüştürme ---
+def convert_html_text_to_pdf(html_content, output_filepath):
+    """
+    HTML içeriğinden metni çıkarır ve bu metni kullanarak bir PDF dosyası oluşturur.
+    """
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        # Sadece görünür metni alıyoruz, script, style etiketlerini ve yorumları atlayarak.
+        # Bu, PDF'e gereksiz kodların dahil edilmesini önler.
+        for script in soup(["script", "style"]):
+            script.extract()    # remove them
+        
+        text = soup.get_text(separator='\n', strip=True) # Metni alırken yeni satırlar ekle
+        text = html.unescape(text)
+        text = (text
+                .replace('\u2019', "'")
+                .replace('\u2018', "'")
+                .replace('\u201c', '"')
+                .replace('\u201d', '"')
+                .replace('\u2013', '-')
+                .replace('\u2014', '-'))
+        
+        # FPDF kütüphanesini kullanarak PDF oluştur
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_font('DejavuSans', '', 'DejaVuSans.ttf', uni=True)
+        pdf.set_font("DejavuSans", size=10) # Türkçe karakter desteği için font ayarı önemli!
+        
+        # Eğer font ekleme başarısız olursa veya font bulunamazsa varsayılan olarak bırakabiliriz,
+        # ama Türkçe karakterler için 'CP1254' gibi bir encoding kullanmamız gerekebilir (fpdf'in eski versiyonlarında).
+        # fpdf2 ile UTF-8 desteği daha iyidir.
+
+        # Metni satırlara ayır ve PDF'e ekle
+        lines = text.split('\n')
+        for line in lines:
+            pdf.write(5, line + '\n') # 5mm satır yüksekliği
+
+        pdf.output(output_filepath)
+        print(f"HTML metni PDF olarak kaydedildi: {output_filepath}")
+        return True
+    except Exception as e:
+        print(f"HTML metnini PDF'e dönüştürürken hata oluştu: {e}")
+        return False
+    
 def download_documents(documents_info, download_folder="Documents"):
     """
     Belge bilgilerini (başlık, URL) kullanarak dosyaları indirir ve belirtilen klasöre kaydeder.
     Dosya adı olarak belge başlığını kullanır.
+    Eğer indirme linki bir web sayfasıysa, içindeki ilk PDF/Word dosyasını bulup onu indirir.
     """
     if not os.path.exists(download_folder):
         os.makedirs(download_folder)
@@ -299,19 +369,56 @@ def download_documents(documents_info, download_folder="Documents"):
 
         # Dosya uzantısını URL'den al
         file_extension = os.path.splitext(urlparse(download_url).path)[1]
-        
+        is_document = file_extension.lower() in ['.pdf', '.doc', '.docx']
+        is_html_file = file_extension.lower() in ['.htm', '.html']
+        final_url = download_url
+        # Eğer uzantı yoksa veya HTML ise, içerik tipine bak
+        if not is_document:
+            try:
+                head_resp = requests.head(download_url, headers=HEADERS, timeout=TIMEOUT_SHORT, allow_redirects=True)
+                content_type = head_resp.headers.get('Content-Type', '').lower()
+                if 'html' in content_type or not any(ext in content_type for ext in ['pdf', 'msword', 'officedocument']):
+                    # Sayfa ise, içindeki ilk belge linkini bul
+                    print(f"'{title}' için doğrudan belge değil, web sayfası tespit edildi. İçerik aranıyor...")
+                    found_doc_url = find_first_document_link_in_page(download_url, base_url='https://ticaret.gov.tr/')
+                    if found_doc_url:
+                        print(f"Gerçek belge linki bulundu: {found_doc_url}")
+                        final_url = found_doc_url
+                        file_extension = os.path.splitext(urlparse(final_url).path)[1]
+                        is_document = file_extension.lower() in ['.pdf', '.doc', '.docx']
+                        is_html_file = file_extension.lower() in ['.htm', '.html']
+                    else:
+                        print(f"'{title}' için sayfa içinde belge linki bulunamadı, HTM içeriği PDF'e dönüştürülecek.")
+                        # HTM içeriğini PDF'e dönüştür
+                        response = requests.get(download_url, headers=HEADERS, timeout=TIMEOUT_LONG)
+                        response.raise_for_status()
+                        html_content = response.text
+                        
+                        # PDF dosya adını oluştur
+                        file_extension = '.pdf'
+                        file_name_with_ext = f"{title}{file_extension}"
+                        full_save_path = os.path.join(download_folder, file_name_with_ext)
+                        
+                        # HTM'i PDF'e dönüştür
+                        if convert_html_text_to_pdf(html_content, full_save_path):
+                            print(f"HTM içeriği başarıyla PDF'e dönüştürüldü: {file_name_with_ext}")
+                            continue
+                        else:
+                            print(f"HTM içeriği PDF'e dönüştürülemedi, orijinal HTM indiriliyor.")
+                            final_url = download_url
+                            file_extension = '.html'
+            except Exception as e:
+                print(f"'{title}' için içerik tipi kontrolünde hata: {e}")
+                continue
+
         # Tam dosya adını oluştur: Temizlenmiş Başlık + Uzantı
-        # Uzantı boşsa ekleme (örneğin uzantısız bir URL ise)
         file_name_with_ext = f"{title}{file_extension}" if file_extension else title
-        
         full_save_path = os.path.join(download_folder, file_name_with_ext)
 
-        print(f"'{title}' belgesi indiriliyor...")
+        print(f"'{title}' belgesi, {file_extension} uzantılı olarak indiriliyor...")
         try:
-            # stream=True: Büyük dosyaları parça parça indirmek için
-            response = requests.get(download_url, stream=True, headers=HEADERS, timeout=TIMEOUT_LONG)
-            response.raise_for_status() # HTTP hataları için istisna fırlat
-
+            response = requests.get(final_url, stream=True, headers=HEADERS, timeout=TIMEOUT_LONG)
+            response.raise_for_status()
             with open(full_save_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
@@ -325,6 +432,7 @@ def download_documents(documents_info, download_folder="Documents"):
 
 # --- Ana Çalışma Akışı ---
 if __name__ == "__main__":
+    print(os.getcwd())
     BASE_URL = "https://ticaret.gov.tr/"
     MAIN_MEVZUAT_PAGE = urljoin(BASE_URL, "tuketici/mevzuat")
     category_links_dict = get_category_links(BASE_URL, MAIN_MEVZUAT_PAGE)
@@ -348,5 +456,4 @@ if __name__ == "__main__":
                 print(f"'{category_name}' kategorisinde indirilecek belge bulunamadı.")
     else:
         print("Kategori linkleri bulunamadı. İşlem sonlandırılıyor.")
-                
-                
+        
