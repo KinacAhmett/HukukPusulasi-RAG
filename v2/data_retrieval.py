@@ -8,6 +8,8 @@ import mimetypes # Dosya türü tahmin etmek için
 import re # Dosya adı temizleme için
 from fpdf import FPDF
 import html
+from playwright.sync_api import sync_playwright
+import subprocess
 
 # User agent tanımı
 HEADERS = {
@@ -280,6 +282,10 @@ def clean_filename(filename):
     """
     cleaned_name = re.sub(r'[\\/:*?"<>|]', '', filename)
     cleaned_name = re.sub(r'\s+', ' ', cleaned_name).strip()
+    cleaned_name = re.sub(r'[çğıöşü]', lambda m: {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u'}[m.group(0)], cleaned_name)
+    cleaned_name = re.sub(r'[^\w\s-]', '', cleaned_name)
+    cleaned_name = re.sub(r'[-\s]+', '_', cleaned_name)
+    cleaned_name = cleaned_name.replace(' ', '_')
     return cleaned_name    
 
 def find_first_document_link_in_page(page_url, base_url):
@@ -304,63 +310,59 @@ def find_first_document_link_in_page(page_url, base_url):
         print(f"Sayfa içindeki belge linki aranırken hata oluştu: {e}")
     return None
 
-# --- Yeni Yardımcı Fonksiyon: HTML Metnini PDF'e Dönüştürme ---
 def convert_html_text_to_pdf(html_content, output_filepath):
     """
-    HTML içeriğinden metni çıkarır ve bu metni kullanarak bir PDF dosyası oluşturur.
+    HTML içeriğinden PDF oluşturur. Türkçe karakter uyumlu.
     """
     try:
-        soup = BeautifulSoup(html_content, 'html.parser')
-        # Sadece görünür metni alıyoruz, script, style etiketlerini ve yorumları atlayarak.
-        # Bu, PDF'e gereksiz kodların dahil edilmesini önler.
-        for script in soup(["script", "style"]):
-            script.extract()    # remove them
-        
-        text = soup.get_text(separator='\n', strip=True) # Metni alırken yeni satırlar ekle
-        text = html.unescape(text)
-        text = (text
-                .replace('\u2019', "'")
-                .replace('\u2018', "'")
-                .replace('\u201c', '"')
-                .replace('\u201d', '"')
-                .replace('\u2013', '-')
-                .replace('\u2014', '-'))
-        
-        # FPDF kütüphanesini kullanarak PDF oluştur
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_font('DejavuSans', '', 'DejaVuSans.ttf', uni=True)
-        pdf.set_font("DejavuSans", size=10) # Türkçe karakter desteği için font ayarı önemli!
-        
-        # Eğer font ekleme başarısız olursa veya font bulunamazsa varsayılan olarak bırakabiliriz,
-        # ama Türkçe karakterler için 'CP1254' gibi bir encoding kullanmamız gerekebilir (fpdf'in eski versiyonlarında).
-        # fpdf2 ile UTF-8 desteği daha iyidir.
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
 
-        # Metni satırlara ayır ve PDF'e ekle
-        lines = text.split('\n')
-        for line in lines:
-            pdf.write(5, line + '\n') # 5mm satır yüksekliği
+            # Farklı encoding'leri dene
+            try:
+                # Önce Windows-1254 encoding dene
+                html_content_decoded = html_content.encode('cp1254').decode('utf-8', errors='ignore')
+            except:
+                try:
+                    # Windows-1254 başarısız olursa UTF-8 dene
+                    html_content_decoded = html_content.encode('utf-8').decode('utf-8', errors='ignore') 
+                except:
+                    # Son çare olarak tüm hataları yok say
+                    html_content_decoded = html_content
 
-        pdf.output(output_filepath)
+            page.set_content(html_content_decoded, wait_until='load')
+
+            # PDF oluşturuluyor
+            page.pdf(
+                path=output_filepath,
+                format='A4',
+                margin={'top': '20mm', 'bottom': '20mm', 'left': '15mm', 'right': '15mm'},
+                print_background=True
+            )
+
+            browser.close()
+
         print(f"HTML metni PDF olarak kaydedildi: {output_filepath}")
         return True
+
     except Exception as e:
         print(f"HTML metnini PDF'e dönüştürürken hata oluştu: {e}")
         return False
-    
+
 def download_documents(documents_info, download_folder="Documents"):
     """
     Belge bilgilerini (başlık, URL) kullanarak dosyaları indirir ve belirtilen klasöre kaydeder.
     Dosya adı olarak belge başlığını kullanır.
     Eğer indirme linki bir web sayfasıysa, içindeki ilk PDF/Word dosyasını bulup onu indirir.
+    Word dosyaları otomatik olarak PDF'e dönüştürülür.
     """
     if not os.path.exists(download_folder):
         os.makedirs(download_folder)
         print(f"'{download_folder}' klasörü oluşturuldu.")
 
     for doc in documents_info:
-        title = doc.get('title', 'bilinmeyen_baslik')
+        title = clean_filename(doc.get('title', 'bilinmeyen_baslik'))
         download_url = doc.get('download_url')
 
         if not download_url:
@@ -372,11 +374,18 @@ def download_documents(documents_info, download_folder="Documents"):
         is_document = file_extension.lower() in ['.pdf', '.doc', '.docx']
         is_html_file = file_extension.lower() in ['.htm', '.html']
         final_url = download_url
+        
+        print(f"\nDEBUG: '{title}' için işlem başlıyor. Başlangıç URL: {download_url}")
+        print(f"DEBUG: Başlangıç dosya uzantısı: {file_extension}, Belge mi? {is_document}, HTML mi? {is_html_file}")
+
         # Eğer uzantı yoksa veya HTML ise, içerik tipine bak
         if not is_document:
             try:
+                print(f"DEBUG: '{title}' için HEAD isteği gönderiliyor: {download_url}")
                 head_resp = requests.head(download_url, headers=HEADERS, timeout=TIMEOUT_SHORT, allow_redirects=True)
                 content_type = head_resp.headers.get('Content-Type', '').lower()
+                print(f"DEBUG: HEAD isteği Content-Type: {content_type}")
+
                 if 'html' in content_type or not any(ext in content_type for ext in ['pdf', 'msword', 'officedocument']):
                     # Sayfa ise, içindeki ilk belge linkini bul
                     print(f"'{title}' için doğrudan belge değil, web sayfası tespit edildi. İçerik aranıyor...")
@@ -387,6 +396,7 @@ def download_documents(documents_info, download_folder="Documents"):
                         file_extension = os.path.splitext(urlparse(final_url).path)[1]
                         is_document = file_extension.lower() in ['.pdf', '.doc', '.docx']
                         is_html_file = file_extension.lower() in ['.htm', '.html']
+                        print(f"DEBUG: Yeni final_url uzantısı: {file_extension}, Belge mi? {is_document}, HTML mi? {is_html_file}")
                     else:
                         print(f"'{title}' için sayfa içinde belge linki bulunamadı, HTM içeriği PDF'e dönüştürülecek.")
                         # HTM içeriğini PDF'e dönüştür
@@ -402,32 +412,102 @@ def download_documents(documents_info, download_folder="Documents"):
                         # HTM'i PDF'e dönüştür
                         if convert_html_text_to_pdf(html_content, full_save_path):
                             print(f"HTM içeriği başarıyla PDF'e dönüştürüldü: {file_name_with_ext}")
-                            continue
+                            continue # Bu belge için işleme devam etme, sonraki belgeye geç
                         else:
                             print(f"HTM içeriği PDF'e dönüştürülemedi, orijinal HTM indiriliyor.")
                             final_url = download_url
                             file_extension = '.html'
+            except requests.exceptions.RequestException as e:
+                print(f"HATA: '{title}' için içerik tipi kontrolünde ağ hatası: {e}")
+                continue
             except Exception as e:
-                print(f"'{title}' için içerik tipi kontrolünde hata: {e}")
+                print(f"HATA: '{title}' için içerik tipi kontrolünde beklenmeyen hata: {e}")
                 continue
 
         # Tam dosya adını oluştur: Temizlenmiş Başlık + Uzantı
         file_name_with_ext = f"{title}{file_extension}" if file_extension else title
-        full_save_path = os.path.join(download_folder, file_name_with_ext)
+        temp_save_path = os.path.join(download_folder, f"temp_{file_name_with_ext}")
+        
+        print(f"'{title}' belgesi indiriliyor... Hedef URL: {final_url}")
+        print(f"DEBUG: Geçici kaydetme yolu: {temp_save_path}")
 
-        print(f"'{title}' belgesi, {file_extension} uzantılı olarak indiriliyor...")
         try:
             response = requests.get(final_url, stream=True, headers=HEADERS, timeout=TIMEOUT_LONG)
             response.raise_for_status()
-            with open(full_save_path, 'wb') as f:
+            with open(temp_save_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
-            print(f"'{file_name_with_ext}' başarıyla indirildi.")
+            print(f"DEBUG: '{temp_save_path}' geçici olarak indirildi.")
+
+            # Word dosyasını PDF'e dönüştür
+            if file_extension.lower() in ['.doc', '.docx']:
+                try:
+                    print(f"Word dosyası PDF'e dönüştürülüyor: {file_name_with_ext}")
+                    
+                    # soffice'in oluşturacağı PDF'in adı, temp_save_path'in son kısmının .pdf uzantılı hali olacak.
+                    # Örneğin: temp_TEKSTİL_ELYAF_İSİMLERİ...YÖNETMELİK.doc -> temp_TEKSTİL_ELYAF_İSİMLERİ...YÖNETMELİK.pdf
+                    temp_pdf_name = f"temp_{os.path.splitext(os.path.basename(file_name_with_ext))[0]}.pdf"
+                    temp_pdf_path = os.path.join(download_folder, temp_pdf_name)
+                    
+                    # Nihai PDF'in adı (temp_ öneki olmadan)
+                    final_pdf_name = f"{title}.pdf"
+                    final_pdf_path = os.path.join(download_folder, final_pdf_name)
+
+                    print(f"DEBUG: soffice'in beklenen çıktı PDF yolu (geçici): {temp_pdf_path}")
+                    print(f"DEBUG: Nihai PDF yolu: {final_pdf_path}")
+                    
+                    # LibreOffice ile dönüştür komutu
+                    command = [
+                        "soffice",
+                        "--headless",
+                        "--convert-to", "pdf",
+                        temp_save_path,
+                        "--outdir", download_folder
+                    ]
+                    print(f"DEBUG: Çalıştırılan komut: {' '.join(command)}")
+                    
+                    process = subprocess.run(command, capture_output=True, text=True)
+                    
+                    print(f"DEBUG: soffice dönüşüm tamamlandı. Dönüş kodu: {process.returncode}")
+                    print(f"DEBUG: soffice stdout: {process.stdout}")
+                    print(f"DEBUG: soffice stderr: {process.stderr}")
+
+                    # Dönüşüm sonrası kısa bir bekleme (dosya sisteminin senkronize olması için)
+                    time.sleep(1) 
+
+                    if os.path.exists(temp_pdf_path):
+                        print(f"DEBUG: Geçici PDF dosyası bulundu: {temp_pdf_path}")
+                        # Geçici PDF'i nihai adına yeniden adlandır
+                        os.rename(temp_pdf_path, final_pdf_path)
+                        print(f"Word dosyası başarıyla PDF'e dönüştürüldü ve yeniden adlandırıldı: {final_pdf_path}")
+                        print(f"DEBUG: Geçici Word dosyası siliniyor: {temp_save_path}")
+                        os.remove(temp_save_path)  # Geçici Word dosyasını sil
+                    else:
+                        print(f"HATA: PDF dosyası bulunamadı: {temp_pdf_path}")
+                        print(f"Orijinal Word dosyası korunuyor: {os.path.join(download_folder, file_name_with_ext)}")
+                        print(f"DEBUG: Geçici Word dosyası yeniden adlandırılıyor: {temp_save_path} -> {os.path.join(download_folder, file_name_with_ext)}")
+                        os.rename(temp_save_path, os.path.join(download_folder, file_name_with_ext))
+                except FileNotFoundError:
+                    print(f"HATA: 'soffice' komutu bulunamadı. LibreOffice yüklü veya PATH'inizde olduğundan emin olun.")
+                    print(f"Orijinal Word dosyası korunuyor: {os.path.join(download_folder, file_name_with_ext)}")
+                    print(f"DEBUG: Geçici Word dosyası yeniden adlandırılıyor: {temp_save_path} -> {os.path.join(download_folder, file_name_with_ext)}")
+                    os.rename(temp_save_path, os.path.join(download_folder, file_name_with_ext))
+                except Exception as e:
+                    print(f"HATA: Word dosyası PDF'e dönüştürülürken beklenmeyen hata oluştu: {e}")
+                    print(f"Orijinal Word dosyası korunuyor: {os.path.join(download_folder, file_name_with_ext)}")
+                    print(f"DEBUG: Geçici Word dosyası yeniden adlandırılıyor: {temp_save_path} -> {os.path.join(download_folder, file_name_with_ext)}")
+                    os.rename(temp_save_path, os.path.join(download_folder, file_name_with_ext))
+            else:
+                # PDF veya diğer dosya türleri için direkt kaydet
+                final_path = os.path.join(download_folder, file_name_with_ext)
+                print(f"DEBUG: Geçici dosya yeniden adlandırılıyor: {temp_save_path} -> {final_path}")
+                os.rename(temp_save_path, final_path)
+                print(f"'{file_name_with_ext}' başarıyla indirildi.")
+
         except requests.exceptions.RequestException as e:
-            print(f"'{file_name_with_ext}' indirme hatası: {e}")
+            print(f"HATA: '{file_name_with_ext}' indirme hatası: {e}")
         except Exception as e:
-            print(f"Beklenmeyen bir hata oluştu '{file_name_with_ext}' indirilirken: {e}")
-            
+            print(f"HATA: Beklenmeyen bir hata oluştu '{file_name_with_ext}' indirilirken: {e}")
 #download_documents(documents)
 
 # --- Ana Çalışma Akışı ---
