@@ -1,539 +1,207 @@
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse, quote, urlunparse
+from urllib.parse import urljoin, urlparse
 import time
 import os
-import hashlib # Dosya içeriği hash'i için
-import mimetypes # Dosya türü tahmin etmek için
-import re # Dosya adı temizleme için
-from fpdf import FPDF
-import html
+import re
 from playwright.sync_api import sync_playwright
 import subprocess
 
-# User agent tanımı
+# --- Sabitler ve Ayarlar ---
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
+TIMEOUT_SHORT = 30
+TIMEOUT_LONG = 60
+ROOT_DOWNLOAD_DIR = "Documents"
+DOCUMENT_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']
 
-# Timeout ayarları
-TIMEOUT_SHORT = 30  # Kısa istekler için
-TIMEOUT_LONG = 45   # Uzun istekler için
-RETRY_ATTEMPTS = 3  # Yeniden deneme sayısı
-RETRY_DELAY = 2     # Denemeler arası bekleme süresi (saniye)
-
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-import time
-
-# Varsayılan değerler (kendi kodunuzdaki RETRY_ATTEMPTS, HEADERS, TIMEOUT_SHORT değerlerini kullanın)
-RETRY_ATTEMPTS = 3
-RETRY_DELAY = 2 # Saniye
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-TIMEOUT_SHORT = 10 # Saniye
-
-def fix_url_path_encoding(url):
-    """
-    Verilen URL'nin path (dizin/dosya adı) kısmındaki kodlama sorunlarını düzeltir.
-    Boşlukları, Türkçe karakterleri ve diğer özel karakterleri URL uyumlu hale getirir.
-    """
-    parsed_url = urlparse(url)
-    path = parsed_url.path
-    path_parts = path.split('/')
-    
-    # Her bir path parçasını (dosya adı dahil) URL kodlamasından geçiriyoruz.
-    # safe='' parametresi, '/' gibi karakterlerin de kodlanmasını engellemek için genellikle kullanılır
-    # ancak burada sadece dosya adını etkilemek istediğimizden her şeyi kodlayıp sonra birleştiriyoruz.
-    encoded_path_parts = [quote(part, safe='') for part in path_parts if part]
-    
-    new_path = '/' + '/'.join(encoded_path_parts)
-    fixed_url = urlunparse(parsed_url._replace(path=new_path))
-    
-    return fixed_url
-
-def get_category_links(base_url, main_mevzuat_page_url):
-    """
-    Ana mevzuat sayfasından alt kategori linklerini çeker.
-    Link ulaşılamazsa veya hatalıysa URL kodlamasını düzeltmeyi dener.
-    """
-    print(f"Ana mevzuat sayfasından kategori linkleri çekiliyor: {main_mevzuat_page_url}")
-    category_links = {}
-    
-    for attempt in range(RETRY_ATTEMPTS):
-        try:
-            print(f"Deneme {attempt + 1}/{RETRY_ATTEMPTS}")
-            response = requests.get(main_mevzuat_page_url, headers=HEADERS, timeout=TIMEOUT_SHORT)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-
-            category_elements = soup.select('div.__content ul.dizin-content li a')
-
-            if not category_elements:
-                print("Belirtilen CSS seçici ile kategori linkleri bulunamadı. Lütfen HTML yapısını kontrol edin.")
-                return {}
-
-            for a_tag in category_elements:
-                h5_tag = a_tag.select_one('div.text h5')
-                link_text = h5_tag.get_text(strip=True) if h5_tag else a_tag.get_text(strip=True)
-                initial_full_url = urljoin(base_url, a_tag['href'])
-
-                # İlk olarak orijinal URL'yi kontrol et
-                current_url_to_check = initial_full_url
-                
-                # Bu link için birden fazla deneme yapabiliriz (opsiyonel)
-                for link_check_attempt in range(2): # Orijinal + Düzeltilmiş deneme
-                    try:
-                        print(f"Kontrol ediliyor: {current_url_to_check}")
-                        # requests.head() isteği, sadece başlık bilgilerini alır, içeriği indirmez. Daha hızlıdır.
-                        check_response = requests.head(current_url_to_check, headers=HEADERS, timeout=TIMEOUT_SHORT)
-                        check_response.raise_for_status() # HTTP hatası varsa istisna fırlatır
-
-                        # Eğer buraya geldiyse, link geçerli demektir
-                        if current_url_to_check not in category_links.values():
-                            category_links[link_text] = current_url_to_check
-                            print(f"Başarılı: {link_text} -> {current_url_to_check}")
-                        break # Link geçerli, sonraki kategoriye geç
-                        
-                    except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as e:
-                        print(f"Link hatası tespit edildi ({current_url_to_check}): {e}")
-                        
-                        # Eğer ilk deneme başarısız olduysa ve URL henüz düzeltilmemişse
-                        if link_check_attempt == 0:
-                            print(f"URL kodlaması düzeltilmeye çalışılıyor...")
-                            current_url_to_check = fix_url_path_encoding(initial_full_url)
-                            # Eğer düzeltilen URL orijinalden farklıysa tekrar deneme yap
-                            if current_url_to_check == initial_full_url:
-                                print("URL zaten doğru şekilde kodlanmış veya düzeltme mümkün değil.")
-                                break # Düzeltme yapılamıyorsa döngüyü sonlandır
-                            else:
-                                print(f"Düzeltilmiş URL: {current_url_to_check}")
-                                # Döngü bir sonraki adımda düzeltilmiş URL'yi kontrol edecek
-                        else:
-                            # İkinci deneme de (düzeltilmiş URL ile) başarısız oldu
-                            print(f"URL düzeltme denemesi başarısız oldu: {link_text}")
-                            break # Bu link için başka deneme yapma
-                    
-            return category_links
-
-        except requests.exceptions.RequestException as e:
-            print(f"Ana sayfa isteği hatası: {e}")
-            if attempt < RETRY_ATTEMPTS - 1:
-                time.sleep(RETRY_DELAY)
-            else:
-                print("Maksimum deneme sayısına ulaşıldı, çıkılıyor.")
-                return {}
-        except Exception as e:
-            print(f"Beklenmeyen hata: {e}")
-            return {}
-    return {}
-    
-"""BASE_URL = "https://ticaret.gov.tr/"
-MAIN_MEVZUAT_PAGE = urljoin(BASE_URL, "tuketici/mevzuat")
-category_links = get_category_links(BASE_URL, MAIN_MEVZUAT_PAGE)"""
-# print(category_links)
-
-def get_document_info_from_category_page(category_url, base_url):
-    """
-    Kategori sayfasından belge başlıklarını, tarihlerini (varsa) ve İNDİR linklerini çeker.
-    Bu versiyon, sağlanan HTML tbody yapısına göre düzenlenmiştir.
-    Hatalı indirme linklerini URL kodlaması açısından düzeltmeyi dener.
-    """
-    print(f"Belge bilgileri çekiliyor: {category_url}")
-    documents = []
-    
-    for attempt in range(RETRY_ATTEMPTS):
-        try:
-            print(f"Deneme {attempt + 1}/{RETRY_ATTEMPTS}")
-            response = requests.get(category_url, headers=HEADERS, timeout=TIMEOUT_LONG)
-            response.raise_for_status() # HTTP hataları için istisna fırlatır
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Sayfa genelindeki tarih bilgisini bulma (ör: '31 Aralık 2024')
-            # Bu kısım her sayfada mevcut olmayabilir veya farklı bir etikette olabilir.
-            page_date = None
-            date_element = soup.find('span', string=lambda text: text and text.strip() and text.strip().split() and text.strip().split()[-1].isdigit())
-            
-            if date_element:
-                page_date = date_element.get_text(strip=True)
-                print(f"Sayfa genelinde tarih bilgisi bulundu: {page_date}")
-
-            all_tables = soup.find_all('table')
-            
-            if not all_tables:
-                print(f"Uyarı: '{category_url}' sayfasında hiç tablo bulunamadı.")
-                return []
-
-            for table in all_tables:
-                # Belirli bir başlık satırı arayabiliriz, ancak bu her tabloda olmayabilir.
-                # Eğer birden fazla tablo varsa ve belirli olanı ayırt etmemiz gerekiyorsa,
-                # bu 'header_row' kontrolü daha spesifik hale getirilmelidir.
-                # Şu anki haliyle, header_row'un bulunup bulunmaması tüm tabloyu işlememizi engellemiyor.
-                # header_row = table.find('tr', style=lambda s: s and "rgb(35, 87, 178)" in s) 
-                
-                target_tbody = table.find('tbody') or table # tbody yoksa doğrudan table etiketini kullan
-                if not target_tbody:
-                    continue # Bu tabloyu atla, bir sonraki tabloya bak
-
-                rows = target_tbody.find_all('tr')
-                # İlk satırı (başlık satırı) atlamak için kontrol ekle
-                # Eğer tabloda başlık satırı varsa, 'i == 0' kontrolü doğru çalışır.
-                for i, row in enumerate(rows):
-                    # Eğer başlık satırı ayırt edici bir şekilde varsa (örneğin CSS sınıfı/stili ile),
-                    # o satırı atlamak için daha spesifik bir kontrol ekleyebiliriz.
-                    # Şimdilik, sadece ilk satırı atlıyoruz.
-                    if i == 0: 
-                        # Başlık satırını atlamadan önce, gerçekten başlık olup olmadığını kontrol edebiliriz.
-                        # Örneğin, <th> etiketleri içeriyor mu?
-                        if row.find('th'):
-                            continue 
-                        # Veya belirli bir metin içeriyor mu?
-                        # if "Belge Adı" in row.get_text():
-                        #     continue
-                    
-                    cols = row.find_all('td')
-                    if len(cols) >= 2: # En az 2 sütun bekliyoruz (başlık ve link)
-                        document_title = cols[0].get_text(strip=True).replace('- ', '', 1).strip()
-                        
-                        download_link_element = cols[1].find('a', href=True)
-                        if download_link_element:
-                            initial_download_url = urljoin(base_url, download_link_element['href'])
-                            
-                            # İndirme linkini kontrol et ve gerekirse düzelt
-                            final_download_url = initial_download_url
-                            
-                            # Bu link için birden fazla deneme yapabiliriz (Orijinal + Düzeltilmiş)
-                            for link_check_attempt in range(2): 
-                                try:
-                                    print(f"İndirme linki kontrol ediliyor: {final_download_url}")
-                                    # HEAD isteği daha hızlıdır, sadece URL'nin erişilebilirliğini kontrol eder.
-                                    check_response = requests.head(final_download_url, headers=HEADERS, timeout=TIMEOUT_SHORT)
-                                    check_response.raise_for_status() 
-                                    print(check_response)
-
-                                    # Eğer buraya geldiyse, link geçerli demektir
-                                    documents.append({
-                                        'title': document_title,
-                                        'date': page_date, # Sayfa genelindeki tarih, belgeye atanır
-                                        'download_url': final_download_url
-                                    })
-                                    print(f"✅ Belge Başarılı: {document_title} -> {final_download_url}")
-                                    break # Link geçerli, sonraki belgeye geç
-                                    
-                                except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as e:
-                                    print(f"❌ İndirme linki hatası tespit edildi ({final_download_url}): {e}")
-                                    
-                                    if link_check_attempt == 0:
-                                        print(f"URL kodlaması düzeltilmeye çalışılıyor...")
-                                        fixed_url = fix_url_path_encoding(initial_download_url)
-                                        
-                                        if fixed_url == initial_download_url:
-                                            print("URL zaten doğru şekilde kodlanmış veya düzeltme mümkün değil. Bu link atlanıyor.")
-                                            break # Düzeltme yapılamıyorsa döngüyü sonlandır
-                                        else:
-                                            final_download_url = fixed_url # Düzeltilmiş URL ile tekrar dene
-                                            print(f"Düzeltilmiş URL: {final_download_url}")
-                                    else:
-                                        print(f"Düzeltilmiş URL denemesi de başarısız oldu. Bu belge linki atlanıyor: {document_title}")
-                                        break # İkinci deneme de başarısız oldu, bu belge linkini atla
-                        else:
-                            print(f"Uyarı: '{document_title}' için İNDİR linki bulunamadı.")
-                    else:
-                        print(f"Uyarı: Beklenmeyen sütun sayısı bulunan satır atlandı: {row.get_text(strip=True)}")
-            
-            return documents  # Başarılı olursa döndür
-            
-        except requests.exceptions.Timeout:
-            print(f"Timeout hatası (deneme {attempt + 1}/{RETRY_ATTEMPTS}) için {category_url}")
-            if attempt < RETRY_ATTEMPTS - 1:
-                print(f"{RETRY_DELAY} saniye bekleniyor...")
-                time.sleep(RETRY_DELAY)
-            else:
-                print("Maksimum deneme sayısına ulaşıldı.")
-                return []
-        except requests.exceptions.RequestException as e:
-            print(f"İstek hatası (deneme {attempt + 1}/{RETRY_ATTEMPTS}) için {category_url}: {e}")
-            if attempt < RETRY_ATTEMPTS - 1:
-                print(f"{RETRY_DELAY} saniye bekleniyor...")
-                time.sleep(RETRY_DELAY)
-            else:
-                print("Maksimum deneme sayısına ulaşıldı.")
-                return []
-        except Exception as e:
-            print(f"Beklenmeyen hata (deneme {attempt + 1}/{RETRY_ATTEMPTS}) için {category_url}: {e}")
-            if attempt < RETRY_ATTEMPTS - 1:
-                print(f"{RETRY_DELAY} saniye bekleniyor...")
-                time.sleep(RETRY_DELAY)
-            else:
-                print("Maksimum deneme sayısına ulaşıldı.")
-                return []
-    
-    return []  # Hiçbir deneme başarılı olmazsa boş liste döndür
-    
-"""i = 1
-# Örnek kullanım
-for category_name, category_url in category_links.items():
-    documents = get_document_info_from_category_page(category_url, BASE_URL)"""
-    
-# --- Dosya Adı Temizleme Fonksiyonu ---
+# --- Yardımcı Fonksiyonlar ---
 def clean_filename(filename):
-    """
-    Dosya adlarında kullanılamayacak karakterleri temizler ve güvenli bir isim döndürür.
-    """
+    if not filename: return "isimsiz"
+    filename = filename.replace('İ', 'I').replace('ı', 'i').replace('Ö', 'O').replace('ö', 'o')
+    filename = filename.replace('Ü', 'U').replace('ü', 'u').replace('Ş', 'S').replace('ş', 's')
+    filename = filename.replace('Ğ', 'G').replace('ğ', 'g').replace('Ç', 'C').replace('ç', 'c')
     cleaned_name = re.sub(r'[\\/:*?"<>|]', '', filename)
     cleaned_name = re.sub(r'\s+', ' ', cleaned_name).strip()
-    cleaned_name = re.sub(r'[çğıöşü]', lambda m: {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u'}[m.group(0)], cleaned_name)
-    cleaned_name = re.sub(r'[^\w\s-]', '', cleaned_name)
-    cleaned_name = re.sub(r'[-\s]+', '_', cleaned_name)
-    cleaned_name = cleaned_name.replace(' ', '_')
-    return cleaned_name    
+    return cleaned_name
 
-def find_first_document_link_in_page(page_url, base_url):
-    """
-    Bir web sayfasındaki ilk PDF veya Word dosyası linkini bulur ve tam URL olarak döndürür.
-    """
+def get_main_category_links(hub_page_url, base_url):
+    print(f"Ana kategori linkleri çekiliyor: {hub_page_url}")
+    main_categories = {}
     try:
-        response = requests.get(page_url, headers=HEADERS, timeout=TIMEOUT_SHORT)
+        response = requests.get(hub_page_url, headers=HEADERS, timeout=TIMEOUT_SHORT)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-        # PDF ve Word dosya uzantılarını arıyoruz
-        for ext in ['.pdf', '.doc', '.docx']:
-            link = soup.find('a', href=lambda href: href and href.lower().endswith(ext))
-            if link:
-                return urljoin(base_url, link['href'])
-        # Alternatif olarak gömülü PDF (iframe/embed) de olabilir
-        for tag in soup.find_all(['iframe', 'embed']):
-            src = tag.get('src')
-            if src and any(src.lower().endswith(ext) for ext in ['.pdf', '.doc', '.docx']):
-                return urljoin(base_url, src)
-    except Exception as e:
-        print(f"Sayfa içindeki belge linki aranırken hata oluştu: {e}")
-    return None
+        link_elements = soup.select('div.__side-menu ul li a')
+        for a_tag in link_elements:
+            href = a_tag.get('href')
+            name = a_tag.get_text(strip=True)
+            if not href or not name or not href.startswith('/tuketici/') or href == '/tuketici': continue
+            full_url = urljoin(base_url, href)
+            if full_url not in main_categories.values():
+                main_categories[name] = full_url
+                print(f"Ana kategori bulundu: {name} -> {full_url}")
+    except requests.exceptions.RequestException as e: print(f"HATA: Ana kategori sayfası alınamadı: {e}")
+    return main_categories
 
-def convert_html_text_to_pdf(html_content, output_filepath):
-    """
-    HTML içeriğinden PDF oluşturur. Türkçe karakter uyumlu.
-    """
+# Direkt metin HTML'in içindeyse onu alıp pdf olarak kaydeder.
+# --- İndirme ve Dönüştürme Fonksiyonları ---
+def save_content_as_pdf(html_content_div, full_path):
+    if os.path.exists(full_path):
+        print(f"Atlandı: Sayfa içeriği PDF'i zaten mevcut: {full_path}")
+        return
+    print(f"Sayfa içeriği PDF olarak kaydediliyor: {full_path}")
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
+            full_html = f'<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>İçerik</title><style>body {{ font-family: sans-serif; line-height: 1.6; }} img {{ max-width: 100%; height: auto; }}</style></head><body>{html_content_div.prettify()}</body></html>'
+            page.set_content(full_html, wait_until='load')
+            page.pdf(path=full_path, format='A4', margin={'top': '20mm', 'bottom': '20mm', 'left': '15mm', 'right': '15mm'})
+            browser.close()
+        print(f"Başarılı: Sayfa içeriği PDF'e dönüştürüldü.")
+    except Exception as e: print(f"HATA: HTML'den PDF'e dönüştürme hatası: {e}")
 
-            # Farklı encoding'leri dene
-            try:
-                # Önce Windows-1254 encoding dene
-                html_content_decoded = html_content.encode('cp1254').decode('utf-8', errors='ignore')
-            except:
-                try:
-                    # Windows-1254 başarısız olursa UTF-8 dene
-                    html_content_decoded = html_content.encode('utf-8').decode('utf-8', errors='ignore') 
-                except:
-                    # Son çare olarak tüm hataları yok say
-                    html_content_decoded = html_content
+def download_file(url, full_path):
+    if os.path.exists(full_path):
+        print(f"Atlandı: Dosya zaten mevcut: {full_path}")
+        return
+    print(f"İndiriliyor: {url} -> {os.path.basename(full_path)}")
+    try:
+        response = requests.get(url, stream=True, headers=HEADERS, timeout=TIMEOUT_LONG)
+        response.raise_for_status()
+        with open(full_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
+        print("Başarılı: İndirme tamamlandı.")
+        if full_path.lower().endswith(('.doc', '.docx')): convert_word_to_pdf(full_path)
+    except requests.exceptions.RequestException as e: print(f"HATA: İndirme hatası: {e}")
 
-            page.set_content(html_content_decoded, wait_until='load')
+def convert_word_to_pdf(doc_path):
+    print(f"Converting Word to PDF: {os.path.basename(doc_path)}")
+    try:
+        output_dir = os.path.dirname(doc_path)
+        command = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", output_dir, doc_path]
+        process = subprocess.run(command, capture_output=True, text=True, timeout=60)
+        if process.returncode == 0:
+            print("Success: Word file converted to PDF and original deleted.")
+            os.remove(doc_path)
+        else: print(f"ERROR: soffice conversion error: {process.stderr}")
+    except Exception as e: print(f"ERROR: Unexpected error during Word to PDF conversion: {e}")
 
-            # PDF oluşturuluyor
-            page.pdf(
-                path=output_filepath,
-                format='A4',
-                margin={'top': '20mm', 'bottom': '20mm', 'left': '15mm', 'right': '15mm'},
-                print_background=True
+def scan_external_page_for_docs(external_url):
+    print(f"Scanning external page: {external_url}")
+    docs_found = []
+    try:
+        response = requests.get(external_url, headers=HEADERS, timeout=TIMEOUT_SHORT)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        for link in soup.select('a[href]'):
+            href = link.get('href')
+            if not href: continue
+            is_document = any(href.lower().endswith(ext) for ext in DOCUMENT_EXTENSIONS)
+            img_inside = link.find('img')
+            img_title = img_inside.get('title', '') if img_inside else ''
+            if is_document or 'pdf' in img_title.lower() or 'word' in img_title.lower():
+                doc_title = clean_filename(img_title or "Belge")
+                full_download_url = urljoin(external_url, href)
+                file_ext = os.path.splitext(urlparse(full_download_url).path)[1]
+                if not file_ext: file_ext = ".pdf" if 'pdf' in img_title.lower() else ".doc"
+                docs_found.append({'title': doc_title, 'download_url': full_download_url, 'extension': file_ext})
+    except Exception as e:
+        print(f"    HATA: Harici sayfa taranırken hata ({external_url}): {e}")
+    return docs_found
+
+# --- ÖZYİNELEMELİ ANA FONKSİYON ---
+
+def process_page(url, base_url, path_context, visited_urls):
+    """Bir sayfayı özyinelemeli olarak işler: tüm linkleri takip eder, belgeleri indirir."""
+    clean_url = url.split('#')[0].rstrip('/')
+    if clean_url in visited_urls: return
+    visited_urls.add(clean_url)
+
+    indent = "  " * len(path_context)
+    print(f"\n{indent}➡️  İşleniyor ({len(path_context)}. seviye): {' / '.join(path_context)}")
+    print(f"{indent}    URL: {url}")
+    
+    current_dir = os.path.join(ROOT_DOWNLOAD_DIR, *path_context)
+    os.makedirs(current_dir, exist_ok=True)
+
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=TIMEOUT_SHORT)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # --- DEĞİŞİKLİK BURADA BAŞLIYOR ---
+        # Sayfadaki tüm işlemleri alakasız linkleri (header/footer vb.) elemek için __zone içinde yap
+        zone_div = soup.select_one('div.__zone')
+        
+        if not zone_div:
+            print(f"{indent}Uyarı: Sayfada '__zone' alanı bulunamadı. Bu sayfa atlanıyor.")
+            return
+        # --- DEĞİŞİKLİK BİTTİ ---
+
+        processed_hrefs = set()
+
+        # 1. Sayfadaki TÜM linkleri (SADECE __zone İÇİNDEKİ) bul ve sınıflandır
+        for link in zone_div.select('a[href]'): # <-- DEĞİŞİKLİK: soup yerine zone_div kullanılıyor
+            href = link.get('href', '').strip()
+            if not href or href.startswith(('mailto:', 'javascript:')) or href in processed_hrefs: continue
+            
+            processed_hrefs.add(href)
+            link_text = clean_filename(link.get_text(strip=True)) or f"isimsiz_link_{time.time():.0f}"
+            full_url = urljoin(base_url, href)
+
+            if any(href.lower().endswith(ext) for ext in DOCUMENT_EXTENSIONS):
+                print(f"{indent}    [BELGE] Bulundu: {link_text}")
+                file_ext = os.path.splitext(urlparse(href).path)[1]
+                file_path = os.path.join(current_dir, f"{link_text}{file_ext}")
+                download_file(full_url, file_path)
+            elif full_url.startswith(base_url):
+                print(f"{indent}    [SİTE İÇİ LİNK] Takip ediliyor: {link_text}")
+                next_path_context = path_context + [link_text]
+                process_page(full_url, base_url, next_path_context, visited_urls)
+            else:
+                print(f"{indent}    [HARİCİ LİNK] İçerik taranıyor: {link_text}")
+                external_docs = scan_external_page_for_docs(full_url)
+                if external_docs:
+                    print(f"{indent}    Harici sayfada {len(external_docs)} belge bulundu.")
+                    for doc in external_docs:
+                        filename = f"{link_text} - {doc['title']}{doc['extension']}"
+                        file_path = os.path.join(current_dir, filename)
+                        download_file(doc['download_url'], file_path)
+
+        # 2. Sayfa içeriğini (__content içindeki) PDF olarak arşivle
+        content_for_pdf = zone_div.select_one('div.__content') # <-- DEĞİŞİKLİK: __zone içindeki __content'i bul
+        if content_for_pdf and content_for_pdf.get_text(strip=True, separator=' '):
+            pdf_path = os.path.join(current_dir, f"_Sayfa_İçeriği - {path_context[-1]}.pdf")
+            save_content_as_pdf(content_for_pdf, pdf_path)
+
+    except requests.exceptions.RequestException as e:
+        print(f"{indent}HATA: Sayfa alınamadı ({url}): {e}")
+    except Exception as e:
+        print(f"{indent}HATA: Beklenmedik hata ({url}): {e}")
+
+
+# --- ANA ÇALIŞMA AKIŞI (Değişiklik Yok) ---
+if __name__ == "__main__":
+    BASE_URL = "https://ticaret.gov.tr/"
+    MAIN_HUB_PAGE = urljoin(BASE_URL, "/tuketici/tuketici-bilgi-rehberi")
+    visited_urls = set()
+
+    print("--- 1. Adım: Ana Kategoriler Alınıyor ---")
+    main_categories = get_main_category_links(MAIN_HUB_PAGE, BASE_URL)
+
+    if not main_categories:
+        print("Hiç ana kategori bulunamadı. İşlem sonlandırılıyor.")
+    else:
+        print("\n--- 2. Adım: Her Kategori İçin Özyinelemeli Tarama Başlatılıyor ---")
+        for cat_name, cat_url in main_categories.items():
+            process_page(
+                url=cat_url,
+                base_url=BASE_URL,
+                path_context=[clean_filename(cat_name)],
+                visited_urls=visited_urls
             )
 
-            browser.close()
-
-        print(f"HTML metni PDF olarak kaydedildi: {output_filepath}")
-        return True
-
-    except Exception as e:
-        print(f"HTML metnini PDF'e dönüştürürken hata oluştu: {e}")
-        return False
-
-def download_documents(documents_info, download_folder="Documents"):
-    """
-    Belge bilgilerini (başlık, URL) kullanarak dosyaları indirir ve belirtilen klasöre kaydeder.
-    Dosya adı olarak belge başlığını kullanır.
-    Eğer indirme linki bir web sayfasıysa, içindeki ilk PDF/Word dosyasını bulup onu indirir.
-    Word dosyaları otomatik olarak PDF'e dönüştürülür.
-    """
-    if not os.path.exists(download_folder):
-        os.makedirs(download_folder)
-        print(f"'{download_folder}' klasörü oluşturuldu.")
-
-    for doc in documents_info:
-        title = clean_filename(doc.get('title', 'bilinmeyen_baslik'))
-        download_url = doc.get('download_url')
-
-        if not download_url:
-            print(f"Uyarı: '{title}' için indirme URL'si bulunamadı, atlanıyor.")
-            continue
-
-        # Dosya uzantısını URL'den al
-        file_extension = os.path.splitext(urlparse(download_url).path)[1]
-        is_document = file_extension.lower() in ['.pdf', '.doc', '.docx']
-        is_html_file = file_extension.lower() in ['.htm', '.html']
-        final_url = download_url
-        
-        print(f"\nDEBUG: '{title}' için işlem başlıyor. Başlangıç URL: {download_url}")
-        print(f"DEBUG: Başlangıç dosya uzantısı: {file_extension}, Belge mi? {is_document}, HTML mi? {is_html_file}")
-
-        # Eğer uzantı yoksa veya HTML ise, içerik tipine bak
-        if not is_document:
-            try:
-                print(f"DEBUG: '{title}' için HEAD isteği gönderiliyor: {download_url}")
-                head_resp = requests.head(download_url, headers=HEADERS, timeout=TIMEOUT_SHORT, allow_redirects=True)
-                content_type = head_resp.headers.get('Content-Type', '').lower()
-                print(f"DEBUG: HEAD isteği Content-Type: {content_type}")
-
-                if 'html' in content_type or not any(ext in content_type for ext in ['pdf', 'msword', 'officedocument']):
-                    # Sayfa ise, içindeki ilk belge linkini bul
-                    print(f"'{title}' için doğrudan belge değil, web sayfası tespit edildi. İçerik aranıyor...")
-                    found_doc_url = find_first_document_link_in_page(download_url, base_url='https://ticaret.gov.tr/')
-                    if found_doc_url:
-                        print(f"Gerçek belge linki bulundu: {found_doc_url}")
-                        final_url = found_doc_url
-                        file_extension = os.path.splitext(urlparse(final_url).path)[1]
-                        is_document = file_extension.lower() in ['.pdf', '.doc', '.docx']
-                        is_html_file = file_extension.lower() in ['.htm', '.html']
-                        print(f"DEBUG: Yeni final_url uzantısı: {file_extension}, Belge mi? {is_document}, HTML mi? {is_html_file}")
-                    else:
-                        print(f"'{title}' için sayfa içinde belge linki bulunamadı, HTM içeriği PDF'e dönüştürülecek.")
-                        # HTM içeriğini PDF'e dönüştür
-                        response = requests.get(download_url, headers=HEADERS, timeout=TIMEOUT_LONG)
-                        response.raise_for_status()
-                        html_content = response.text
-                        
-                        # PDF dosya adını oluştur
-                        file_extension = '.pdf'
-                        file_name_with_ext = f"{title}{file_extension}"
-                        full_save_path = os.path.join(download_folder, file_name_with_ext)
-                        
-                        # HTM'i PDF'e dönüştür
-                        if convert_html_text_to_pdf(html_content, full_save_path):
-                            print(f"HTM içeriği başarıyla PDF'e dönüştürüldü: {file_name_with_ext}")
-                            continue # Bu belge için işleme devam etme, sonraki belgeye geç
-                        else:
-                            print(f"HTM içeriği PDF'e dönüştürülemedi, orijinal HTM indiriliyor.")
-                            final_url = download_url
-                            file_extension = '.html'
-            except requests.exceptions.RequestException as e:
-                print(f"HATA: '{title}' için içerik tipi kontrolünde ağ hatası: {e}")
-                continue
-            except Exception as e:
-                print(f"HATA: '{title}' için içerik tipi kontrolünde beklenmeyen hata: {e}")
-                continue
-
-        # Tam dosya adını oluştur: Temizlenmiş Başlık + Uzantı
-        file_name_with_ext = f"{title}{file_extension}" if file_extension else title
-        temp_save_path = os.path.join(download_folder, f"temp_{file_name_with_ext}")
-        
-        print(f"'{title}' belgesi indiriliyor... Hedef URL: {final_url}")
-        print(f"DEBUG: Geçici kaydetme yolu: {temp_save_path}")
-
-        try:
-            response = requests.get(final_url, stream=True, headers=HEADERS, timeout=TIMEOUT_LONG)
-            response.raise_for_status()
-            with open(temp_save_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            print(f"DEBUG: '{temp_save_path}' geçici olarak indirildi.")
-
-            # Word dosyasını PDF'e dönüştür
-            if file_extension.lower() in ['.doc', '.docx']:
-                try:
-                    print(f"Word dosyası PDF'e dönüştürülüyor: {file_name_with_ext}")
-                    
-                    # soffice'in oluşturacağı PDF'in adı, temp_save_path'in son kısmının .pdf uzantılı hali olacak.
-                    # Örneğin: temp_TEKSTİL_ELYAF_İSİMLERİ...YÖNETMELİK.doc -> temp_TEKSTİL_ELYAF_İSİMLERİ...YÖNETMELİK.pdf
-                    temp_pdf_name = f"temp_{os.path.splitext(os.path.basename(file_name_with_ext))[0]}.pdf"
-                    temp_pdf_path = os.path.join(download_folder, temp_pdf_name)
-                    
-                    # Nihai PDF'in adı (temp_ öneki olmadan)
-                    final_pdf_name = f"{title}.pdf"
-                    final_pdf_path = os.path.join(download_folder, final_pdf_name)
-
-                    print(f"DEBUG: soffice'in beklenen çıktı PDF yolu (geçici): {temp_pdf_path}")
-                    print(f"DEBUG: Nihai PDF yolu: {final_pdf_path}")
-                    
-                    # LibreOffice ile dönüştür komutu
-                    command = [
-                        "soffice",
-                        "--headless",
-                        "--convert-to", "pdf",
-                        temp_save_path,
-                        "--outdir", download_folder
-                    ]
-                    print(f"DEBUG: Çalıştırılan komut: {' '.join(command)}")
-                    
-                    process = subprocess.run(command, capture_output=True, text=True)
-                    
-                    print(f"DEBUG: soffice dönüşüm tamamlandı. Dönüş kodu: {process.returncode}")
-                    print(f"DEBUG: soffice stdout: {process.stdout}")
-                    print(f"DEBUG: soffice stderr: {process.stderr}")
-
-                    # Dönüşüm sonrası kısa bir bekleme (dosya sisteminin senkronize olması için)
-                    time.sleep(1) 
-
-                    if os.path.exists(temp_pdf_path):
-                        print(f"DEBUG: Geçici PDF dosyası bulundu: {temp_pdf_path}")
-                        # Geçici PDF'i nihai adına yeniden adlandır
-                        os.rename(temp_pdf_path, final_pdf_path)
-                        print(f"Word dosyası başarıyla PDF'e dönüştürüldü ve yeniden adlandırıldı: {final_pdf_path}")
-                        print(f"DEBUG: Geçici Word dosyası siliniyor: {temp_save_path}")
-                        os.remove(temp_save_path)  # Geçici Word dosyasını sil
-                    else:
-                        print(f"HATA: PDF dosyası bulunamadı: {temp_pdf_path}")
-                        print(f"Orijinal Word dosyası korunuyor: {os.path.join(download_folder, file_name_with_ext)}")
-                        print(f"DEBUG: Geçici Word dosyası yeniden adlandırılıyor: {temp_save_path} -> {os.path.join(download_folder, file_name_with_ext)}")
-                        os.rename(temp_save_path, os.path.join(download_folder, file_name_with_ext))
-                except FileNotFoundError:
-                    print(f"HATA: 'soffice' komutu bulunamadı. LibreOffice yüklü veya PATH'inizde olduğundan emin olun.")
-                    print(f"Orijinal Word dosyası korunuyor: {os.path.join(download_folder, file_name_with_ext)}")
-                    print(f"DEBUG: Geçici Word dosyası yeniden adlandırılıyor: {temp_save_path} -> {os.path.join(download_folder, file_name_with_ext)}")
-                    os.rename(temp_save_path, os.path.join(download_folder, file_name_with_ext))
-                except Exception as e:
-                    print(f"HATA: Word dosyası PDF'e dönüştürülürken beklenmeyen hata oluştu: {e}")
-                    print(f"Orijinal Word dosyası korunuyor: {os.path.join(download_folder, file_name_with_ext)}")
-                    print(f"DEBUG: Geçici Word dosyası yeniden adlandırılıyor: {temp_save_path} -> {os.path.join(download_folder, file_name_with_ext)}")
-                    os.rename(temp_save_path, os.path.join(download_folder, file_name_with_ext))
-            else:
-                # PDF veya diğer dosya türleri için direkt kaydet
-                final_path = os.path.join(download_folder, file_name_with_ext)
-                print(f"DEBUG: Geçici dosya yeniden adlandırılıyor: {temp_save_path} -> {final_path}")
-                os.rename(temp_save_path, final_path)
-                print(f"'{file_name_with_ext}' başarıyla indirildi.")
-
-        except requests.exceptions.RequestException as e:
-            print(f"HATA: '{file_name_with_ext}' indirme hatası: {e}")
-        except Exception as e:
-            print(f"HATA: Beklenmeyen bir hata oluştu '{file_name_with_ext}' indirilirken: {e}")
-#download_documents(documents)
-
-# --- Ana Çalışma Akışı ---
-if __name__ == "__main__":
-    print(os.getcwd())
-    BASE_URL = "https://ticaret.gov.tr/"
-    MAIN_MEVZUAT_PAGE = urljoin(BASE_URL, "tuketici/mevzuat")
-    category_links_dict = get_category_links(BASE_URL, MAIN_MEVZUAT_PAGE)
-
-    if category_links_dict:
-        print("\n--- Kategori Linkleri Bulundu ---")
-        # Her bir kategori için döngü kuruyoruz
-        for category_name, category_url in category_links_dict.items():
-            print(f"\nİşleniyor: Kategori: {category_name}, URL: {category_url}")
-            
-            print(f"--- '{category_name}' Kategorisindeki Belgeler Çekiliyor ---")
-            documents_to_download = get_document_info_from_category_page(category_url, BASE_URL)
-
-            if documents_to_download:
-                print(f"--- '{category_name}' Kategorisindeki Belgeler İndiriliyor ---")
-                # Her kategori için ayrı bir alt klasör oluşturuyoruz
-                # Klasör adını kategori adından türetiyoruz ve güvenli hale getiriyoruz
-                category_download_folder = os.path.join("Documents", clean_filename(category_name))
-                download_documents(documents_to_download, download_folder=category_download_folder)
-            else:
-                print(f"'{category_name}' kategorisinde indirilecek belge bulunamadı.")
-    else:
-        print("Kategori linkleri bulunamadı. İşlem sonlandırılıyor.")
-        
+    print("\n✅ Tüm işlemler tamamlandı.")
