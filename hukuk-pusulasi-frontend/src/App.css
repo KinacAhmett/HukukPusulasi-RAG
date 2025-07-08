@@ -11,7 +11,7 @@
   list-style-type: none;
   padding: 0;
   margin: 0;
-  background-color: #333; /* Navigasyon arka plan rengi */
+  background-color: #001524; /* Navigasyon arka plan rengi */
   display: flex;
   justify-content: center;
 }
@@ -28,7 +28,7 @@
 }
 
 .App-nav a:hover {
-  background-color: #575757;
+  background-color: #000000;
 }
 
 .App-content {
@@ -39,12 +39,6 @@
 .App-logo {
   height: 40vmin;
   pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
 }
 
 .App-header {
@@ -60,13 +54,4 @@
 
 .App-link {
   color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
