@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage'; // Bu dosyayı src/pages/HomePage.jsx olarak oluşturmanız gerekmektedir.
 import ChatPage from './pages/ChatPage'; // ChatPage bileşenini import ettik
+import RegisterPage from './pages/RegisterPage'; // RegisterPage bileşenini import ettik
 import logo from './logo.png'; // Eğer logonuzu hala kullanmak isterseniz bu satırı koruyabilirsiniz
 
 function App() {
@@ -34,8 +35,8 @@ function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/chat" element={<ChatPage />} /> 
+            <Route path="/register" element={<RegisterPage />} />
             {/* Buraya diğer rotaları ekleyebilirsiniz, örneğin: */}
-            {/* <Route path="/register" element={<RegisterPage />} /> */}
             {/* <Route path="/dashboard" element={<DashboardPage />} /> */}
           </Routes>
         </div>

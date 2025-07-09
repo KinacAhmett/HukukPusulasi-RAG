@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom'; // useNavigate hook'unu import ettik
-
+import '../App.css';
 
 function LoginPage() {
   const [email, setEmail] = useState('');
@@ -29,32 +29,45 @@ function LoginPage() {
       alert('Giriş başarısız. Lütfen bilgilerinizi kontrol edin.');
     }
   };
+
+  const handleRegisterRedirect = () => {
+    navigate('/register');
+  };
+
   return (
-    <div>
-      <h1>Giriş Yap</h1>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="email">E-posta:</label>
-        <input
-          type="email"
-          id="email"
-          name="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <br />
-        <label htmlFor="password">Şifre:</label>
-        <input
-          type="password"
-          id="password"
-          name="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        <br />
-        <button type="submit">Giriş Yap</button>
-      </form>
+    <div className="loginpage-container">
+      <div className="login-form-box">
+        <h2>Giriş Yap</h2>
+        <form onSubmit={handleSubmit}>
+          <label htmlFor="email">E-posta</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="login-input"
+            autoComplete="username"
+          />
+          <label htmlFor="password">Şifre</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="login-input"
+            autoComplete="current-password"
+          />
+          <button type="submit" className="login-btn">Giriş Yap</button>
+        </form>
+        <div className="register-link-container">
+          <span>Hesabınız yok mu? </span>
+          <span className="register-link" onClick={handleRegisterRedirect} tabIndex={0} role="button">Kayıt olun</span>
+        </div>
+      </div>
     </div>
   );
 }

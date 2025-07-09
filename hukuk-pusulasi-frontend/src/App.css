@@ -55,3 +55,123 @@
 .App-link {
   color: #61dafb;
 }
+
+.homepage-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 80vh;
+  background: #f7f7fa;
+  padding-top: 40px;
+}
+
+.homepage-logo {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  margin-bottom: 24px;
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  background: white;
+}
+
+.homepage-content {
+  background: white;
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+  padding: 32px 28px;
+  max-width: 420px;
+  text-align: center;
+}
+
+.homepage-content h2 {
+  margin-bottom: 18px;
+  color: #2a2a4a;
+}
+
+.homepage-content p {
+  margin-bottom: 14px;
+  color: #444;
+  font-size: 1.08rem;
+  line-height: 1.6;
+}
+
+.loginpage-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  background: #f7f7fa;
+}
+
+.login-form-box {
+  background: white;
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+  padding: 36px 32px 28px 32px;
+  max-width: 370px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-form-box h2 {
+  margin-bottom: 10px;
+  color: #2a2a4a;
+}
+
+.login-input {
+  width: 100%;
+  padding: 10px 12px;
+  margin: 8px 0 18px 0;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1rem;
+  background: #fafbfc;
+  transition: border 0.2s;
+}
+
+.login-input:focus {
+  border: 1.5px solid #61dafb;
+  outline: none;
+}
+
+.login-btn {
+  width: 100%;
+  padding: 12px 0;
+  background: #61dafb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.08rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: background 0.2s;
+}
+
+.login-btn:hover {
+  background: #21b6e6;
+}
+
+.register-link-container {
+  margin-top: 12px;
+  font-size: 0.98rem;
+}
+
+.register-link {
+  color: #61dafb;
+  cursor: pointer;
+  font-weight: 600;
+  margin-left: 4px;
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+
+.register-link:hover, .register-link:focus {
+  color: #21b6e6;
+}
