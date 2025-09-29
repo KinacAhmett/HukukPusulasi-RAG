@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Header from '../components/Header';
 import '../App.css';
 
 function RegisterPage() {
@@ -21,7 +22,9 @@ function RegisterPage() {
   };
 
   return (
-    <div className="loginpage-container">
+    <div className="page-container">
+      <Header />
+      <div className="loginpage-container">
       <div className="login-form-box">
         <h2>Kayıt Ol</h2>
         <form onSubmit={handleSubmit}>
@@ -76,6 +79,7 @@ function RegisterPage() {
           <span className="register-link" onClick={handleLoginRedirect} tabIndex={0} role="button">Giriş yap</span>
         </div>
       </div>
+    </div>
     </div>
   );
 }

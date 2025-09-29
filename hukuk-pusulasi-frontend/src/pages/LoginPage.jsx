@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom'; // useNavigate hook'unu import ettik
+import Header from '../components/Header';
 import '../App.css';
 
 function LoginPage() {
@@ -35,7 +36,9 @@ function LoginPage() {
   };
 
   return (
-    <div className="loginpage-container">
+    <div className="page-container">
+      <Header />
+      <div className="loginpage-container">
       <div className="login-form-box">
         <h2>Giriş Yap</h2>
         <form onSubmit={handleSubmit}>
@@ -68,6 +71,7 @@ function LoginPage() {
           <span className="register-link" onClick={handleRegisterRedirect} tabIndex={0} role="button">Kayıt olun</span>
         </div>
       </div>
+    </div>
     </div>
   );
 }

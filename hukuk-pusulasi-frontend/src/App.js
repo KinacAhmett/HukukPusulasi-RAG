@@ -11,40 +11,16 @@ function App() {
   return (
     <Router>
       <div className="App">
-        {/* Navigasyon çubuğu */}
-        <nav className="App-nav">
-          <ul>
-            <img src={logo} alt="HukukPusulası Logo" className="App-logo" style={{ height: '100px', width: '125px' }} />
-            <li>
-              <Link to="/">Ana Sayfa</Link>
-            </li>
-            <li>
-              <Link to="/login">Giriş Yap</Link>
-            </li>
-            <li>
-              <Link to="/chat">Chatbot</Link> {/* Chat sayfasına link ekledik */}
-            </li>
-            {/* Diğer linkler buraya eklenebilir, örneğin Kayıt Ol, Profil vb. */}
-          </ul>
-        </nav>
-
         {/* Sayfa İçerikleri - Rotaya göre bileşen render edilecek */}
-        <div className="App-content">
-          <Routes>
-            {/* Ana sayfa ve diğer sayfalar için rotalar */}
-            <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/chat" element={<ChatPage />} /> 
-            <Route path="/register" element={<RegisterPage />} />
-            {/* Buraya diğer rotaları ekleyebilirsiniz, örneğin: */}
-            {/* <Route path="/dashboard" element={<DashboardPage />} /> */}
-          </Routes>
-        </div>
-
-        {/* Footer */}
-        {<footer className="App-footer">
-          <p>&copy; {new Date().getFullYear()} HukukPusulası. Tüm Hakları Saklıdır.</p>
-        </footer> }
+        <Routes>
+          {/* Ana sayfa ve diğer sayfalar için rotalar */}
+          <Route path="/" element={<HomePage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/chat" element={<ChatPage />} /> 
+          <Route path="/register" element={<RegisterPage />} />
+          {/* Buraya diğer rotaları ekleyebilirsiniz, örneğin: */}
+          {/* <Route path="/dashboard" element={<DashboardPage />} /> */}
+        </Routes>
       </div>
     </Router>
   );
