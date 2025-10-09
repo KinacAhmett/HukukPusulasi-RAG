@@ -1,0 +1,53 @@
+# macOS
+.DS_Store
+Icon?
+.Spotlight-V100
+.Trashes
+
+# Node / React
+node_modules/
+hukuk-pusulasi-frontend/node_modules/
+hukuk-pusulasi-frontend/build/
+hukuk-pusulasi-frontend/.env.local
+hukuk-pusulasi-frontend/.env.development.local
+hukuk-pusulasi-frontend/.env.test.local
+hukuk-pusulasi-frontend/.env.production.local
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+*.env
+.env.*.local
+
+# Python / Notebooks
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+*.ipynb~*
+
+# Large folders
+outputs/
+outputs-v1/
+versions/
+hukukPusulasi-veri/
+yararli-olabilir/
+
+# Editors / IDEs
+.vscode/
+.idea/
+
+# Git
+.git-credentials
+
+
