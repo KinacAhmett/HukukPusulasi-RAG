@@ -44,6 +44,10 @@ outputs-ben2/
 versions/
 hukukPusulasi-veri/
 yararli-olabilir/
+hukukPusulasi_veri_text/
+rag_files/
+code/indirme_ilerleme.json
+merged_model_hukuk/
 
 # Editors / IDEs
 .vscode/
