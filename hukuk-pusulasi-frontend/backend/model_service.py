@@ -16,7 +16,7 @@ from chromadb.utils import embedding_functions
 from sentence_transformers import SentenceTransformer
 
 # Transformers imports (Unsloth yerine)
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
 # ==============================================================================
@@ -501,35 +501,19 @@ def initialize_model():
         print("🚀 HUKUK PUSULASI RAG SİSTEMİ BAŞLATILIYOR")
         print("="*60)
 
-        # 1. LLM Yükleme (Normal Transformers ile)
+        # 1. LLM Yükleme (CPU için optimize edilmiş)
         print(f"\n📄 LLM yükleniyor: {HF_MODEL_ID}...")
 
-        # Mac için: CPU veya MPS (Metal Performance Shaders)
-        if torch.backends.mps.is_available():
-            device = "mps"  # Mac M1/M2/M3 için
-            print("🍎 Apple Silicon GPU (MPS) kullanılıyor")
-        elif torch.cuda.is_available():
+        # Device tespiti
+        if torch.cuda.is_available():
             device = "cuda"
             print("🎮 NVIDIA GPU kullanılıyor")
+        elif torch.backends.mps.is_available():
+            device = "mps"
+            print("🍎 Apple Silicon GPU (MPS) kullanılıyor")
         else:
             device = "cpu"
-            print("💻 CPU kullanılıyor (yavaş olabilir)")
-
-        # Quantization config (bellek tasarrufu için)
-        quantization_config = None
-
-        # SADECE ve SADECE CUDA kullanılıyorsa 4-bit nicelemeyi etkinleştir.
-        if device == "cuda":
-            print("🚀 CUDA algılandı, 4-bit niceleme kullanılıyor.")
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4"
-            )
-        else:
-            # MPS veya CPU için nicelemeyi devre dışı bırak.
-            print(f"⚠️ {device.upper()} kullanılıyor, 4-bit niceleme devre dışı bırakıldı.")
+            print("💻 CPU kullanılıyor")
 
         # Tokenizer yükle
         llm_tokenizer = AutoTokenizer.from_pretrained(
@@ -537,31 +521,16 @@ def initialize_model():
             trust_remote_code=True
         )
 
-        # Ortak parametreleri hazırla
-        model_kwargs = {
-            "trust_remote_code": True,
-            "low_cpu_mem_usage": True,
-            # MPS'de float16 desteklenir, CPU'da float32 daha güvenlidir.
-            "torch_dtype": torch.float16 if device in ["cuda", "mps"] else torch.float32,
-        }
+        # Model yükle (CPU/MPS uyumlu - quantization YOK)
+        print("⏳ Model yükleniyor (bu biraz zaman alabilir)...")
 
-        # device_map ekle (Sadece CUDA'da 4-bit ile kullanılması önerilir)
-        if device == "cuda":
-            model_kwargs["device_map"] = "auto"
-
-        # quantization_config ekle (Sadece None değilse, yani CUDA ise ekle)
-        if quantization_config is not None:
-            model_kwargs["quantization_config"] = quantization_config
-
-        # Model yükle (Hata veren satır)
         llm_model = AutoModelForCausalLM.from_pretrained(
             HF_MODEL_ID,
-            **model_kwargs
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float32 if device == "cpu" else torch.float16,
+            device_map="cpu" if device == "cpu" else "auto"
         )
-
-        # Mac için modeli MPS'ye taşı (Niceleme yoksa bu gereklidir)
-        if device == "mps" and llm_model is not None:
-            llm_model = llm_model.to(device)
 
         llm_model.eval()  # Inference mode
         print("✅ LLM başarıyla yüklendi!")
