@@ -1,0 +1,23 @@
+# Flask API
+flask==3.0.0
+flask-cors==4.0.0
+python-dotenv==1.0.0
+
+# Vector Store & RAG
+chromadb==0.4.22
+sentence-transformers==2.2.2
+
+# LLM (Unsloth yerine standart Transformers)
+torch==2.1.0
+transformers==4.36.0
+accelerate==0.25.0
+
+# Quantization (SADECE Linux/CUDA varsa, Mac'te opsiyonel)
+# bitsandbytes==0.41.3
+
+# Utilities
+numpy==1.24.3
+tqdm==4.66.1
+
+# Production Server
+gunicorn==21.2.0
