@@ -1,11 +1,25 @@
-flask==3.0.0
-flask-cors==4.0.0
-python-dotenv==1.0.0
-torch==2.5.1
-transformers==4.36.0
-sentence-transformers==2.2.2
-chromadb==0.4.22
-numpy>=2.0.0
-accelerate==0.25.0
-sentencepiece==0.1.99
-protobuf==4.25.0
+# Flask API
+flask
+flask-cors
+python-dotenv
+
+# Vector Store & RAG
+chromadb
+sentence-transformers
+
+# LLM (Unsloth yerine standart Transformers)
+torch
+transformers
+accelerate
+
+# Quantization (SADECE Linux/CUDA varsa, Mac'te opsiyonel)
+# bitsandbytes
+
+# Utilities
+numpy
+tqdm
+
+# Production Server
+gunicorn
+
+fastapi

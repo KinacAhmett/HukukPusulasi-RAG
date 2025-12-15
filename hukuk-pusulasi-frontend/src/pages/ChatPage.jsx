@@ -27,7 +27,7 @@ function ChatPage() {
 
   useEffect(() => {
     // console.log('📊 Messages güncellendi:', messages.length, 'mesaj var'); // Debug
-    // console.log('📋 Messages array:', messages); // Debug  
+    // console.log('📋 Messages array:', messages); // Debug
     scrollToBottom();
   }, [messages]);
 
@@ -39,8 +39,8 @@ useEffect(() => {
         if (response.data.status === 'healthy') {
           setIsBackendConnected(true);
           setMessages([
-            { 
-              text: "Merhaba! Ben Tüketici Hukuku Pusulanızım. Tüketici haklarınız konusunda size nasıl yardımcı olabilirim?", 
+            {
+              text: "Merhaba! Ben Tüketici Hukuku Pusulanızım. Tüketici haklarınız konusunda size nasıl yardımcı olabilirim?",
               sender: "bot",
               timestamp: new Date()
             }
@@ -48,14 +48,14 @@ useEffect(() => {
 
           // Backend'in çalıştığını öğrendiğimiz an,
           // gidip sohbet geçmişimizi ondan istiyoruz.
-          loadChatSessions(); 
+          loadChatSessions();
 
         }
       } catch (error) {
         setIsBackendConnected(false);
         setMessages([
-          { 
-            text: "⚠️ Backend sunucusuna bağlanılamadı. Lütfen backend'in çalıştığından emin olun.", 
+          {
+            text: "⚠️ Backend sunucusuna bağlanılamadı. Lütfen backend'in çalıştığından emin olun.",
             sender: "bot",
             timestamp: new Date()
           }
@@ -64,7 +64,7 @@ useEffect(() => {
     };
 
     checkBackendConnection();
-    
+
     // Session ID'yi localStorage'dan al
     const savedSessionId = localStorage.getItem('chatSessionId');
     if (savedSessionId) {
@@ -72,79 +72,66 @@ useEffect(() => {
     }
   }, []);
 
-  //
-// ESKİ handleSendMessage FONKSİYONUNU TAMAMEN SİL
-// VE YERİNE BU YENİ KODU YAPIŞTIR
-//
   const handleSendMessage = async (event) => {
     event.preventDefault();
-    if (inputMessage.trim() === '' && !selectedFile) return; // Boş mesaj ve dosya kontrolü
+    if (inputMessage.trim() === '' && !selectedFile) return;
 
     // 1. Kullanıcı mesajını ekrana hemen ekle
     let messageText = inputMessage;
     if (selectedFile) {
-      messageText = inputMessage.trim() 
-        ? `${inputMessage}\n\n📎 Ek: ${selectedFile.name}` 
+      messageText = inputMessage.trim()
+        ? `${inputMessage}\n\n📎 Ek: ${selectedFile.name}`
         : `📎 PDF Dosyası: ${selectedFile.name}`;
     }
-    const userMessage = { 
-      text: messageText, 
+
+    const userMessage = {
+      text: messageText,
       sender: "user",
       timestamp: new Date(),
       hasFile: !!selectedFile
     };
     setMessages((prevMessages) => [...prevMessages, userMessage]);
-    
-    // 2. State'teki verileri geçici değişkenlere al (temizlemeden önce)
+
+    // 2. State'teki verileri geçici değişkenlere al
     const currentMessage = inputMessage;
     const currentFile = selectedFile;
-    
+
     // 3. Input'ları temizle
-    setInputMessage(''); 
-    setSelectedFile(null); 
+    setInputMessage('');
+    setSelectedFile(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
 
     try {
-      // --- BURASI DEĞİŞTİ (JSON -> FORMDATA) ---
-      
-      // 4. Veri paketi olarak 'FormData' oluştur
-      // Bu, metin ve dosyaları birlikte göndermenin standart yoludur.
-      const formData = new FormData();
-      
-      // 5. Backend'in (app.py) beklediği tüm verileri pakete ekle
-      formData.append('message', currentMessage);
-      formData.append('session_id', sessionId); // Bu 'null' olabilir, backend bunu anlıyor
-      formData.append('is_temporary', isTemporaryChat); // 'true' veya 'false'
-      
-      if (currentFile) {
-        // En önemli kısım: Dosyanın kendisini pakete ekle
-        formData.append('file', currentFile, currentFile.name);
-      }
-      
-      // 6. Backend API'yi 'FormData' ile çağır
-      const response = await axios.post('http://localhost:5000/api/chatbot', 
-        formData, // JSON objesi yerine formData'yı yolla
+      // 4. Backend'e JSON formatında gönder (FormData DEĞİL!)
+      const response = await axios.post(
+        'http://localhost:5000/api/chatbot',
         {
-          // 'Content-Type': 'application/json' HEADER'INI MUTLAKA KALDIRDIK.
-          // Axios, FormData için 'multipart/form-data'yı otomatik ayarlar.
+          message: currentMessage,
+          session_id: sessionId || null,
+          is_temporary: isTemporaryChat
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json'  // ← ÖNEMLİ!
+          }
         }
       );
-      // --- DEĞİŞİKLİK BİTTİ ---
 
-      // 7. Gelen cevabı işle (Bu kısım eskisiyle aynı)
+      // 5. Session ID'yi güncelle
       if (response.data.session_id) {
-        const isNewChat = sessionId !== response.data.session_id; 
+        const isNewChat = sessionId !== response.data.session_id;
         setSessionId(response.data.session_id);
         localStorage.setItem('chatSessionId', response.data.session_id);
         if (isNewChat) {
-          loadChatSessions(); 
+          loadChatSessions();
         }
       }
 
-      const botMessage = { 
-        text: response.data.reply || "Yanıt alınamadı", 
+      // 6. Bot yanıtını ekrana ekle
+      const botMessage = {
+        text: response.data.reply || "Yanıt alınamadı",
         sender: "bot",
         timestamp: new Date()
       };
@@ -153,13 +140,15 @@ useEffect(() => {
     } catch (error) {
       console.error('HukukPusulası API hatası:', error);
       let errorMessage = "Üzgünüm, bir sorun oluştu. Lütfen tekrar deneyin.";
+
       if (error.response) {
         errorMessage = error.response.data.error || errorMessage;
       } else if (error.request) {
         errorMessage = "Backend sunucusuna ulaşılamıyor. Lütfen backend'in çalıştığından emin olun.";
       }
-      setMessages((prevMessages) => [...prevMessages, { 
-        text: errorMessage, 
+
+      setMessages((prevMessages) => [...prevMessages, {
+        text: errorMessage,
         sender: "bot",
         timestamp: new Date()
       }]);
@@ -169,18 +158,18 @@ useEffect(() => {
   const newChat = () => {
     // 1. EKRANI TEMİZLE (Bu sende zaten vardı)
     setMessages([
-      { 
-        text: "Merhaba! Ben Tüketici Hukuku Pusulanızım. Tüketici haklarınız konusunda size nasıl yardımcı olabilirim?", 
+      {
+        text: "Merhaba! Ben Tüketici Hukuku Pusulanızım. Tüketici haklarınız konusunda size nasıl yardımcı olabilirim?",
         sender: "bot",
         timestamp: new Date()
       }
     ]);
-    
+
     // 2. HAFIZAYI SIFIRLA (Eksik olan ve hatayı çözen kısım bu)
     setCurrentChatId(null);   // Aktif seçili sohbeti kaldır
     setSessionId(null);       // Ana oturum ID'sini state'den sıfırla
     localStorage.removeItem('chatSessionId'); // Tarayıcı hafızasından da sıfırla
-    
+
     // 3. DİĞERLERİNİ TEMİZLE (Bunlar da sende vardı)
     setIsTemporaryChat(false);
     setSelectedFile(null);
@@ -199,15 +188,15 @@ useEffect(() => {
     try {
       // 1. Backend'deki /api/sessions kapısını çağır
       const response = await axios.get('http://localhost:5000/api/sessions');
-      
+
       // 2. Gelen "sessions" dizisini al
       const loadedSessions = response.data.sessions.map(chat => ({
         ...chat,
         // Backend'den gelen 'lastMessage' tarihini Date objesine çevir
         // Bu, senin 'filteredChatHistory' kodunun düzgün çalışması için önemli
-        lastMessage: new Date(chat.lastMessage) 
+        lastMessage: new Date(chat.lastMessage)
       }));
-      
+
       // 3. Kenar çubuğunu doldurmak için state'i güncelle
       setChatHistory(loadedSessions);
       console.log('Sohbet oturumları yüklendi:', loadedSessions);
@@ -222,17 +211,17 @@ useEffect(() => {
     if (messages.length > 1 && currentChatId === null && !isTemporaryChat) {
       const newChatId = Date.now().toString();
       const firstUserMessage = messages.find(msg => msg.sender === 'user');
-      const chatTitle = firstUserMessage 
+      const chatTitle = firstUserMessage
         ? firstUserMessage.text.substring(0, 30) + (firstUserMessage.text.length > 30 ? '...' : '')
         : 'Yeni Sohbet';
-      
+
       const newChatHistory = {
         id: newChatId,
         title: chatTitle,
         messages: [...messages],
         lastMessage: new Date()
       };
-      
+
       setChatHistory(prev => [newChatHistory, ...prev]);
     }
 
@@ -241,8 +230,8 @@ useEffect(() => {
     setIsTemporaryChat(true);
     setSelectedFile(null);
     setMessages([
-      { 
-        text: "🕐 Geçici Sohbet Modu\n\nBu sohbet geçici olarak açılmıştır. Sohbet geçmişinize kaydedilmeyecek ve oturum sonlandığında silinecektir.\n\nTüketici haklarınız konusunda size nasıl yardımcı olabilirim?", 
+      {
+        text: "🕐 Geçici Sohbet Modu\n\nBu sohbet geçici olarak açılmıştır. Sohbet geçmişinize kaydedilmeyecek ve oturum sonlandığında silinecektir.\n\nTüketici haklarınız konusunda size nasıl yardımcı olabilirim?",
         sender: "bot",
         timestamp: new Date()
       }
@@ -265,16 +254,16 @@ useEffect(() => {
     }
   };
 
-  
+
   const loadChat = async (chatId) => {
     // Zaten o sohbetteyse bir şey yapma
-    if (currentChatId === chatId) return; 
+    if (currentChatId === chatId) return;
 
     console.log(`Sohbet yükleniyor: ${chatId}`);
     try {
       // 1. Backend'deki /api/history/<id> kapısını çağır
       const response = await axios.get(`http://localhost:5000/api/history/${chatId}`);
-      
+
       // 2. Gelen 'history' dizisini frontend'in 'messages' formatına çevir
       const loadedMessages = response.data.history.map(msg => ({
         text: msg.text,
@@ -303,11 +292,11 @@ useEffect(() => {
     try {
       // 2. Backend'deki /api/chat/<id> "DELETE" kapısını çağır
       await axios.delete(`http://localhost:5000/api/chat/${chatId}`);
-      
+
       // 3. Backend'den SİLME BAŞARILI olursa, EKRANI güncelle
       // (Listeden o sohbeti çıkar)
       setChatHistory(prev => prev.filter(c => c.id !== chatId));
-      
+
       // 4. Eğer silinen sohbet, o an açık olan sohbetse, "Yeni Sohbet" ekranına geç
       if (currentChatId === chatId) {
         newChat();
@@ -320,7 +309,7 @@ useEffect(() => {
   };
 
   // Sohbet geçmişini filtrele
-  const filteredChatHistory = chatHistory.filter(chat => 
+  const filteredChatHistory = chatHistory.filter(chat =>
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -330,12 +319,12 @@ useEffect(() => {
       <a href="#main-content" className="skip-link">
         Ana içeriğe geç (Skip to main content)
       </a>
-      
+
       {/* Gizli yardım metni */}
       <div id="input-help" className="sr-only">
         Tüketici hakları konusunda sorularınızı yazabilirsiniz. En fazla 500 karakter.
       </div>
-      
+
       <Header />
       <div className="chatpage-container">
         {/* Sidebar */}
@@ -346,7 +335,7 @@ useEffect(() => {
           </button>
           {sidebarOpen && <h3 className="sidebar-title">Hukuk Pusulası</h3>}
         </div>
-        
+
         {!sidebarOpen && (
           <div className="compact-buttons">
             <button onClick={newChat} className="compact-btn" title="Yeni Sohbet">
@@ -357,13 +346,13 @@ useEffect(() => {
             </button>
           </div>
         )}
-        
+
         {sidebarOpen && (
           <div className="sidebar-content">
             <button onClick={newChat} className="new-chat-btn">
               ✏️ Yeni Sohbet
             </button>
-            
+
             <div className="search-section">
               <div className="search-wrapper">
                 <input
@@ -387,15 +376,15 @@ useEffect(() => {
                 ) : (
                   filteredChatHistory.map((chat) => (
                     <div key={chat.id} className="chat-item">
-                      <button 
+                      <button
                         onClick={() => loadChat(chat.id)}
                         className={`chat-btn ${currentChatId === chat.id ? 'active' : ''}`}
                       >
                         <div className="chat-title">{chat.title}</div>
                         <div className="chat-time">
-                          {chat.lastMessage.toLocaleDateString('tr-TR', { 
-                            day: 'numeric', 
-                            month: 'short' 
+                          {chat.lastMessage.toLocaleDateString('tr-TR', {
+                            day: 'numeric',
+                            month: 'short'
                           })}
                         </div>
                       </button>
@@ -490,7 +479,7 @@ useEffect(() => {
             onChange={handleFileSelect}
             style={{ display: 'none' }}
           />
-          
+
           {selectedFile && (
             <div className="file-preview">
               <div className="file-info">
@@ -501,15 +490,15 @@ useEffect(() => {
               <button onClick={removeFile} className="remove-file">✕</button>
             </div>
           )}
-          
-          <form 
-            onSubmit={handleSendMessage} 
+
+          <form
+            onSubmit={handleSendMessage}
             className="input-form"
             role="search"
             aria-label="Hukuki soru formu"
           >
             <div className="input-wrapper">
-              <button 
+              <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="file-btn"
@@ -531,8 +520,8 @@ useEffect(() => {
                 autoComplete="off"
                 maxLength="500"
               />
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 disabled={!inputMessage.trim() && !selectedFile}
                 className={`send-btn ${(inputMessage.trim() || selectedFile) ? 'active' : ''}`}
                 title="Mesajı gönder (Enter)"
@@ -543,7 +532,7 @@ useEffect(() => {
               </button>
             </div>
           </form>
-          
+
           <div className="input-footer">
             Hukuk Pusulası size hukuki konularda yardımcı olmaya çalışır, ancak profesyonel hukuki tavsiye yerine geçmez.
           </div>
