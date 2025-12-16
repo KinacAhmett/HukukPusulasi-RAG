@@ -5,6 +5,7 @@ import axios from 'axios';
 import Header from '../components/Header';
 import AccessibilityPanel from '../components/AccessibilityPanel';
 import logo from '../logo.png';
+import { API_ENDPOINTS } from '../config'; // ← YENİ: Config import
 
 function ChatPage() {
   const navigate = useNavigate();
@@ -26,30 +27,24 @@ function ChatPage() {
   };
 
   useEffect(() => {
-    // console.log('📊 Messages güncellendi:', messages.length, 'mesaj var'); // Debug
-    // console.log('📋 Messages array:', messages); // Debug
     scrollToBottom();
   }, [messages]);
 
   // Backend bağlantı kontrolü
-useEffect(() => {
+  useEffect(() => {
     const checkBackendConnection = async () => {
       try {
-        const response = await axios.get('http://localhost:5000/api/health');
+        const response = await axios.get(API_ENDPOINTS.HEALTH); // ← DEĞİŞTİ
         if (response.data.status === 'healthy') {
           setIsBackendConnected(true);
           setMessages([
             {
-              text: "Merhaba! Ben Tüketici Hukuku Pusulanızım. Tüketici haklarınız konusunda size nasıl yardımcı olabilirim?",
+              text: "Merhaba! Ben Tüketici Hukuku Pusulasınızım. Tüketici haklarınız konusunda size nasıl yardımcı olabilirim?",
               sender: "bot",
               timestamp: new Date()
             }
           ]);
-
-          // Backend'in çalıştığını öğrendiğimiz an,
-          // gidip sohbet geçmişimizi ondan istiyoruz.
           loadChatSessions();
-
         }
       } catch (error) {
         setIsBackendConnected(false);
@@ -65,7 +60,6 @@ useEffect(() => {
 
     checkBackendConnection();
 
-    // Session ID'yi localStorage'dan al
     const savedSessionId = localStorage.getItem('chatSessionId');
     if (savedSessionId) {
       setSessionId(savedSessionId);
@@ -76,7 +70,6 @@ useEffect(() => {
     event.preventDefault();
     if (inputMessage.trim() === '' && !selectedFile) return;
 
-    // 1. Kullanıcı mesajını ekrana hemen ekle
     let messageText = inputMessage;
     if (selectedFile) {
       messageText = inputMessage.trim()
@@ -92,11 +85,9 @@ useEffect(() => {
     };
     setMessages((prevMessages) => [...prevMessages, userMessage]);
 
-    // 2. State'teki verileri geçici değişkenlere al
     const currentMessage = inputMessage;
     const currentFile = selectedFile;
 
-    // 3. Input'ları temizle
     setInputMessage('');
     setSelectedFile(null);
     if (fileInputRef.current) {
@@ -104,9 +95,8 @@ useEffect(() => {
     }
 
     try {
-      // 4. Backend'e JSON formatında gönder (FormData DEĞİL!)
       const response = await axios.post(
-        'http://localhost:5000/api/chatbot',
+        API_ENDPOINTS.CHATBOT, // ← DEĞİŞTİ
         {
           message: currentMessage,
           session_id: sessionId || null,
@@ -114,12 +104,11 @@ useEffect(() => {
         },
         {
           headers: {
-            'Content-Type': 'application/json'  // ← ÖNEMLİ!
+            'Content-Type': 'application/json'
           }
         }
       );
 
-      // 5. Session ID'yi güncelle
       if (response.data.session_id) {
         const isNewChat = sessionId !== response.data.session_id;
         setSessionId(response.data.session_id);
@@ -129,7 +118,6 @@ useEffect(() => {
         }
       }
 
-      // 6. Bot yanıtını ekrana ekle
       const botMessage = {
         text: response.data.reply || "Yanıt alınamadı",
         sender: "bot",
@@ -156,48 +144,35 @@ useEffect(() => {
   };
 
   const newChat = () => {
-    // 1. EKRANI TEMİZLE (Bu sende zaten vardı)
     setMessages([
       {
-        text: "Merhaba! Ben Tüketici Hukuku Pusulanızım. Tüketici haklarınız konusunda size nasıl yardımcı olabilirim?",
+        text: "Merhaba! Ben Tüketici Hukuku Pusulasınızım. Tüketici haklarınız konusunda size nasıl yardımcı olabilirim?",
         sender: "bot",
         timestamp: new Date()
       }
     ]);
 
-    // 2. HAFIZAYI SIFIRLA (Eksik olan ve hatayı çözen kısım bu)
-    setCurrentChatId(null);   // Aktif seçili sohbeti kaldır
-    setSessionId(null);       // Ana oturum ID'sini state'den sıfırla
-    localStorage.removeItem('chatSessionId'); // Tarayıcı hafızasından da sıfırla
-
-    // 3. DİĞERLERİNİ TEMİZLE (Bunlar da sende vardı)
+    setCurrentChatId(null);
+    setSessionId(null);
+    localStorage.removeItem('chatSessionId');
     setIsTemporaryChat(false);
     setSelectedFile(null);
-    setInputMessage(''); // Ekstra olarak input'u da temizleyelim
+    setInputMessage('');
 
-    // 4. DOSYA INPUT'UNU TEMİZLE
-  if (fileInputRef.current) {
-    fileInputRef.current.value = '';
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
-//
-// BU YENİ FONKSİYONU ChatPage.jsx İÇİNE EKLE
-//
   const loadChatSessions = async () => {
     try {
-      // 1. Backend'deki /api/sessions kapısını çağır
-      const response = await axios.get('http://localhost:5000/api/sessions');
+      const response = await axios.get(API_ENDPOINTS.SESSIONS); // ← DEĞİŞTİ
 
-      // 2. Gelen "sessions" dizisini al
       const loadedSessions = response.data.sessions.map(chat => ({
         ...chat,
-        // Backend'den gelen 'lastMessage' tarihini Date objesine çevir
-        // Bu, senin 'filteredChatHistory' kodunun düzgün çalışması için önemli
         lastMessage: new Date(chat.lastMessage)
       }));
 
-      // 3. Kenar çubuğunu doldurmak için state'i güncelle
       setChatHistory(loadedSessions);
       console.log('Sohbet oturumları yüklendi:', loadedSessions);
 
@@ -207,7 +182,6 @@ useEffect(() => {
   };
 
   const startTemporaryChat = () => {
-    // Mevcut sohbeti kaydet (eğer normal sohbet ise)
     if (messages.length > 1 && currentChatId === null && !isTemporaryChat) {
       const newChatId = Date.now().toString();
       const firstUserMessage = messages.find(msg => msg.sender === 'user');
@@ -225,7 +199,6 @@ useEffect(() => {
       setChatHistory(prev => [newChatHistory, ...prev]);
     }
 
-    // Geçici sohbet başlat
     setCurrentChatId(null);
     setIsTemporaryChat(true);
     setSelectedFile(null);
@@ -254,27 +227,22 @@ useEffect(() => {
     }
   };
 
-
   const loadChat = async (chatId) => {
-    // Zaten o sohbetteyse bir şey yapma
     if (currentChatId === chatId) return;
 
     console.log(`Sohbet yükleniyor: ${chatId}`);
     try {
-      // 1. Backend'deki /api/history/<id> kapısını çağır
-      const response = await axios.get(`http://localhost:5000/api/history/${chatId}`);
+      const response = await axios.get(API_ENDPOINTS.HISTORY(chatId)); // ← DEĞİŞTİ
 
-      // 2. Gelen 'history' dizisini frontend'in 'messages' formatına çevir
       const loadedMessages = response.data.history.map(msg => ({
         text: msg.text,
         sender: msg.sender,
-        timestamp: new Date(msg.timestamp) // Tarih formatını düzelt
+        timestamp: new Date(msg.timestamp)
       }));
 
-      // 3. State'i güncelle
-      setCurrentChatId(chatId); // Hangi sohbette olduğumuzu ayarla
-      setMessages(loadedMessages); // Mesajları ekrana bas
-      setIsTemporaryChat(false); // Geçici sohbet modunda olmadığımızdan emin ol
+      setCurrentChatId(chatId);
+      setMessages(loadedMessages);
+      setIsTemporaryChat(false);
 
     } catch (error) {
       console.error('Sohbet geçmişi (history) yüklenirken hata:', error);
@@ -283,21 +251,16 @@ useEffect(() => {
   };
 
   const deleteChat = async (chatId) => {
-    // 1. Önce kullanıcıdan onay isteyelim (İsteğe bağlı ama iyi bir pratik)
     // eslint-disable-next-line no-restricted-globals
     if (!confirm("Bu sohbeti kalıcı olarak silmek istediğinizden emin misiniz?")) {
-      return; // Kullanıcı "İptal" derse hiçbir şey yapma
+      return;
     }
 
     try {
-      // 2. Backend'deki /api/chat/<id> "DELETE" kapısını çağır
-      await axios.delete(`http://localhost:5000/api/chat/${chatId}`);
+      await axios.delete(API_ENDPOINTS.DELETE_CHAT(chatId)); // ← DEĞİŞTİ
 
-      // 3. Backend'den SİLME BAŞARILI olursa, EKRANI güncelle
-      // (Listeden o sohbeti çıkar)
       setChatHistory(prev => prev.filter(c => c.id !== chatId));
 
-      // 4. Eğer silinen sohbet, o an açık olan sohbetse, "Yeni Sohbet" ekranına geç
       if (currentChatId === chatId) {
         newChat();
       }
@@ -308,239 +271,233 @@ useEffect(() => {
     }
   };
 
-  // Sohbet geçmişini filtrele
   const filteredChatHistory = chatHistory.filter(chat =>
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
     <div className="page-container">
-      {/* Skip Link */}
       <a href="#main-content" className="skip-link">
         Ana içeriğe geç (Skip to main content)
       </a>
 
-      {/* Gizli yardım metni */}
       <div id="input-help" className="sr-only">
         Tüketici hakları konusunda sorularınızı yazabilirsiniz. En fazla 500 karakter.
       </div>
 
       <Header />
       <div className="chatpage-container">
-        {/* Sidebar */}
-      <div className={`chatpage-sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
-        <div className="sidebar-header">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="menu-toggle">
-            ☰
-          </button>
-          {sidebarOpen && <h3 className="sidebar-title">Hukuk Pusulası</h3>}
-        </div>
-
-        {!sidebarOpen && (
-          <div className="compact-buttons">
-            <button onClick={newChat} className="compact-btn" title="Yeni Sohbet">
-              ✏️
+        <div className={`chatpage-sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
+          <div className="sidebar-header">
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="menu-toggle">
+              ☰
             </button>
-            <button onClick={() => setSidebarOpen(true)} className="compact-btn" title="Sohbette Ara">
-              🔍
-            </button>
+            {sidebarOpen && <h3 className="sidebar-title">Hukuk Pusulası</h3>}
           </div>
-        )}
 
-        {sidebarOpen && (
-          <div className="sidebar-content">
-            <button onClick={newChat} className="new-chat-btn">
-              ✏️ Yeni Sohbet
-            </button>
-
-            <div className="search-section">
-              <div className="search-wrapper">
-                <input
-                  type="text"
-                  placeholder="Sohbetlerde ara..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="search-input"
-                />
-                <span className="search-icon">🔍</span>
-              </div>
+          {!sidebarOpen && (
+            <div className="compact-buttons">
+              <button onClick={newChat} className="compact-btn" title="Yeni Sohbet">
+                ✏️
+              </button>
+              <button onClick={() => setSidebarOpen(true)} className="compact-btn" title="Sohbette Ara">
+                🔍
+              </button>
             </div>
+          )}
 
-            <div className="chat-history">
-              <h4 className="section-title">Sohbetler</h4>
-              <div className="chat-list">
-                {filteredChatHistory.length === 0 ? (
-                  <div className="empty-list">
-                    {searchQuery ? 'Arama sonucu bulunamadı' : 'Henüz sohbet geçmişi yok'}
-                  </div>
-                ) : (
-                  filteredChatHistory.map((chat) => (
-                    <div key={chat.id} className="chat-item">
-                      <button
-                        onClick={() => loadChat(chat.id)}
-                        className={`chat-btn ${currentChatId === chat.id ? 'active' : ''}`}
-                      >
-                        <div className="chat-title">{chat.title}</div>
-                        <div className="chat-time">
-                          {chat.lastMessage.toLocaleDateString('tr-TR', {
-                            day: 'numeric',
-                            month: 'short'
-                          })}
-                        </div>
-                      </button>
-                      <button onClick={() => deleteChat(chat.id)} className="delete-btn" title="Sohbeti sil">
-                        🗑️
-                      </button>
+          {sidebarOpen && (
+            <div className="sidebar-content">
+              <button onClick={newChat} className="new-chat-btn">
+                ✏️ Yeni Sohbet
+              </button>
+
+              <div className="search-section">
+                <div className="search-wrapper">
+                  <input
+                    type="text"
+                    placeholder="Sohbetlerde ara..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="search-input"
+                  />
+                  <span className="search-icon">🔍</span>
+                </div>
+              </div>
+
+              <div className="chat-history">
+                <h4 className="section-title">Sohbetler</h4>
+                <div className="chat-list">
+                  {filteredChatHistory.length === 0 ? (
+                    <div className="empty-list">
+                      {searchQuery ? 'Arama sonucu bulunamadı' : 'Henüz sohbet geçmişi yok'}
                     </div>
-                  ))
-                )}
+                  ) : (
+                    filteredChatHistory.map((chat) => (
+                      <div key={chat.id} className="chat-item">
+                        <button
+                          onClick={() => loadChat(chat.id)}
+                          className={`chat-btn ${currentChatId === chat.id ? 'active' : ''}`}
+                        >
+                          <div className="chat-title">{chat.title}</div>
+                          <div className="chat-time">
+                            {chat.lastMessage.toLocaleDateString('tr-TR', {
+                              day: 'numeric',
+                              month: 'short'
+                            })}
+                          </div>
+                        </button>
+                        <button onClick={() => deleteChat(chat.id)} className="delete-btn" title="Sohbeti sil">
+                          🗑️
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Ana İçerik */}
-      <div className="chatpage-main" id="main-content">
-        <div className="chatpage-header">
-          <div className="header-left">
-            <h2 className="header-title">Tüketici Hukuku Chatbot</h2>
-            <div className="connection-status">
-              <span className={`status-indicator ${isBackendConnected ? 'connected' : 'disconnected'}`}>
-                {isBackendConnected ? '🟢' : '🔴'}
-              </span>
-              <span className="status-text">
-                {isBackendConnected ? 'AI Bağlı' : 'AI Bağlantısız'}
-              </span>
-            </div>
-          </div>
-          <div className="header-right">
-            <button onClick={startTemporaryChat} className="temp-chat-btn">
-              🕐 Geçici Sohbet
-            </button>
-          </div>
+          )}
         </div>
 
-        {isTemporaryChat && (
-          <div className="temp-notification">
-            <span className="temp-icon">🕐</span>
-            <span className="temp-text">Geçici Sohbet Modu - Bu sohbet kaydedilmeyecek</span>
-            <button onClick={newChat} className="temp-close" title="Normal sohbete dön">✕</button>
+        <div className="chatpage-main" id="main-content">
+          <div className="chatpage-header">
+            <div className="header-left">
+              <h2 className="header-title">Tüketici Hukuku Chatbot</h2>
+              <div className="connection-status">
+                <span className={`status-indicator ${isBackendConnected ? 'connected' : 'disconnected'}`}>
+                  {isBackendConnected ? '🟢' : '🔴'}
+                </span>
+                <span className="status-text">
+                  {isBackendConnected ? 'AI Bağlı' : 'AI Bağlantısız'}
+                </span>
+              </div>
+            </div>
+            <div className="header-right">
+              <button onClick={startTemporaryChat} className="temp-chat-btn">
+                🕐 Geçici Sohbet
+              </button>
+            </div>
           </div>
-        )}
+
+          {isTemporaryChat && (
+            <div className="temp-notification">
+              <span className="temp-icon">🕐</span>
+              <span className="temp-text">Geçici Sohbet Modu - Bu sohbet kaydedilmeyecek</span>
+              <button onClick={newChat} className="temp-close" title="Normal sohbete dön">✕</button>
+            </div>
+          )}
 
           <div className="messages-container">
-          {messages.length === 0 ? (
-            <div className="welcome-container">
-              <div className="welcome-icon">🛡️</div>
-              <h2 className="welcome-title">Tüketici Hukuku Pusulanıza Hoş Geldiniz</h2>
-              <p className="welcome-subtitle">
-                Tüketici haklarınız konusunda sorularınız için buradayım. Size nasıl yardımcı olabilirim?
-              </p>
-              <div className="suggestions">
-                <button onClick={() => setInputMessage("Tüketici haklarım nelerdir?")} className="suggestion-btn">
-                  Tüketici Hakları
-                </button>
-                <button onClick={() => setInputMessage("Satın aldığım üründe sorun var, ne yapmalıyım?")} className="suggestion-btn">
-                  Ürün Sorunu
-                </button>
-                <button onClick={() => setInputMessage("İade ve değişim haklarım nelerdir?")} className="suggestion-btn">
-                  İade Hakları
-                </button>
+            {messages.length === 0 ? (
+              <div className="welcome-container">
+                <div className="welcome-icon">🛡️</div>
+                <h2 className="welcome-title">Tüketici Hukuku Pusulasına Hoş Geldiniz</h2>
+                <p className="welcome-subtitle">
+                  Tüketici haklarınız konusunda sorularınız için buradayım. Size nasıl yardımcı olabilirim?
+                </p>
+                <div className="suggestions">
+                  <button onClick={() => setInputMessage("Tüketici haklarım nelerdir?")} className="suggestion-btn">
+                    Tüketici Hakları
+                  </button>
+                  <button onClick={() => setInputMessage("Satın aldığım üründe sorun var, ne yapmalıyım?")} className="suggestion-btn">
+                    Ürün Sorunu
+                  </button>
+                  <button onClick={() => setInputMessage("İade ve değişim haklarım nelerdir?")} className="suggestion-btn">
+                    İade Hakları
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            messages.map((msg, index) => (
-              <div key={index} className="message-wrapper">
-                <div className={`message-container ${msg.sender}`}>
-                  <div className="message-avatar">
-                    {msg.sender === 'user' ? '👤' : '⚖️'}
-                  </div>
-                  <div className="message-content">
-                    <div className="message-text">
-                      {msg.text}
+            ) : (
+              messages.map((msg, index) => (
+                <div key={index} className="message-wrapper">
+                  <div className={`message-container ${msg.sender}`}>
+                    <div className="message-avatar">
+                      {msg.sender === 'user' ? '👤' : '⚖️'}
                     </div>
-                    <div className="message-time">
-                      {msg.timestamp?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <div className="message-content">
+                      <div className="message-text">
+                        {msg.text}
+                      </div>
+                      <div className="message-time">
+                        {msg.timestamp?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
                     </div>
                   </div>
                 </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="input-container">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".pdf"
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+            />
+
+            {selectedFile && (
+              <div className="file-preview">
+                <div className="file-info">
+                  <span className="file-icon">📄</span>
+                  <span className="file-name">{selectedFile.name}</span>
+                  <span className="file-size">({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                </div>
+                <button onClick={removeFile} className="remove-file">✕</button>
               </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
-        </div>
+            )}
 
-        <div className="input-container">
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept=".pdf"
-            onChange={handleFileSelect}
-            style={{ display: 'none' }}
-          />
-
-          {selectedFile && (
-            <div className="file-preview">
-              <div className="file-info">
-                <span className="file-icon">📄</span>
-                <span className="file-name">{selectedFile.name}</span>
-                <span className="file-size">({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+            <form
+              onSubmit={handleSendMessage}
+              className="input-form"
+              role="search"
+              aria-label="Hukuki soru formu"
+            >
+              <div className="input-wrapper">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="file-btn"
+                  title="PDF belge yükle (Alt+U)"
+                  aria-label="PDF belge yükle"
+                  accessKey="u"
+                >
+                  <span aria-hidden="true">➕</span>
+                  <span className="sr-only">Dosya Ekle</span>
+                </button>
+                <input
+                  type="text"
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  placeholder="Tüketici hukuku sorunuzu buraya yazın..."
+                  className="message-input"
+                  aria-label="Hukuki soru yazın"
+                  aria-describedby="input-help"
+                  autoComplete="off"
+                  maxLength="500"
+                />
+                <button
+                  type="submit"
+                  disabled={!inputMessage.trim() && !selectedFile}
+                  className={`send-btn ${(inputMessage.trim() || selectedFile) ? 'active' : ''}`}
+                  title="Mesajı gönder (Enter)"
+                  aria-label="Mesajı gönder"
+                >
+                  <span aria-hidden="true">↗️</span>
+                  <span className="sr-only">Gönder</span>
+                </button>
               </div>
-              <button onClick={removeFile} className="remove-file">✕</button>
-            </div>
-          )}
+            </form>
 
-          <form
-            onSubmit={handleSendMessage}
-            className="input-form"
-            role="search"
-            aria-label="Hukuki soru formu"
-          >
-            <div className="input-wrapper">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="file-btn"
-                title="PDF belge yükle (Alt+U)"
-                aria-label="PDF belge yükle"
-                accessKey="u"
-              >
-                <span aria-hidden="true">➕</span>
-                <span className="sr-only">Dosya Ekle</span>
-              </button>
-              <input
-                type="text"
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                placeholder="Tüketici hukuku sorunuzu buraya yazın..."
-                className="message-input"
-                aria-label="Hukuki soru yazın"
-                aria-describedby="input-help"
-                autoComplete="off"
-                maxLength="500"
-              />
-              <button
-                type="submit"
-                disabled={!inputMessage.trim() && !selectedFile}
-                className={`send-btn ${(inputMessage.trim() || selectedFile) ? 'active' : ''}`}
-                title="Mesajı gönder (Enter)"
-                aria-label="Mesajı gönder"
-              >
-                <span aria-hidden="true">↗️</span>
-                <span className="sr-only">Gönder</span>
-              </button>
+            <div className="input-footer">
+              Hukuk Pusulası size hukuki konularda yardımcı olmaya çalışır, ancak profesyonel hukuki tavsiye yerine geçmez.
             </div>
-          </form>
-
-          <div className="input-footer">
-            Hukuk Pusulası size hukuki konularda yardımcı olmaya çalışır, ancak profesyonel hukuki tavsiye yerine geçmez.
           </div>
         </div>
       </div>
-      </div>
 
-      {/* Erişilebilirlik Paneli */}
       <AccessibilityPanel />
     </div>
   );
