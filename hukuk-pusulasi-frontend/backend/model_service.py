@@ -1,50 +1,38 @@
-#
-# model_service.py - HUKUK PUSULASI RAG SİSTEMİ
-#
-import os
-import torch
-import numpy as np
-from typing import List, Dict, Optional
-from threading import Thread
+"""
+model_service.py - Gemini + ChromaDB RAG Entegrasyonu
+Bu dosya modelle ilgili tüm işlemleri yönetir.
+"""
 
-# ChromaDB imports
+import os
+import google.generativeai as genai
+import PyPDF2
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
-
-# Sentence Transformers
 from sentence_transformers import SentenceTransformer
+from typing import Dict, List, Optional
 
-# Transformers imports (Unsloth yerine)
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
+# ============================================================================
+# GLOBAL DEĞİŞKENLER
+# ============================================================================
+gemini_model = None
+vector_store = None
+semantic_processor = None
+distance_analyzer = None
 
-# ==============================================================================
-# CONFIGURATION
-# ==============================================================================
-
-# ChromaDB ayarları
-CHROMADB_PERSIST_DIR = os.getenv("CHROMADB_DIR", "./legal_chroma_db")
+# ============================================================================
+# YAPILANDIRMA
+# ============================================================================
+CHROMADB_PERSIST_DIR = "./legal_chroma_db"  # ChromaDB klasörü
 CHROMADB_COLLECTION_NAME = "legal_documents_v2"
 EMBEDDING_MODEL_NAME = "emrecan/bert-base-turkish-cased-mean-nli-stsb-tr"
 
-# LLM model ayarları
-HF_MODEL_ID = "beyzasn/hukuk-pusulasi-llm-v1-MERGED"
-MAX_SEQ_LENGTH = 8192
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-# Global değişkenler
-llm_model = None
-llm_tokenizer = None
-vector_store = None
-
-# ==============================================================================
-# ✅ DISTANCE ANALYZER (Notebook'tan)
-# ==============================================================================
-
+# ============================================================================
+# DISTANCE ANALYZER (Notebook'tan alındı)
+# ============================================================================
 class DistanceAnalyzer:
-    """ChromaDB L2 distance için optimize edilmiş threshold analizi"""
-
+    """ChromaDB L2 distance için optimize edilmiş threshold'lar"""
+    
     QUALITY_THRESHOLDS = {
         'excellent': 200.0,
         'good': 350.0,
@@ -71,9 +59,9 @@ class DistanceAnalyzer:
         if not results.get('documents') or not results['documents']:
             return {'documents': [], 'metadatas': [], 'distances': [], 'n_results': 0}
 
-        docs = results['documents']
-        metas = results['metadatas']
-        dists = results['distances']
+        docs = results['documents'][0] if isinstance(results['documents'][0], list) else results['documents']
+        metas = results['metadatas'][0] if isinstance(results['metadatas'][0], list) else results['metadatas']
+        dists = results['distances'][0] if isinstance(results['distances'][0], list) else results['distances']
 
         threshold = self.QUALITY_THRESHOLDS.get(quality_level, 500.0)
 
@@ -97,13 +85,10 @@ class DistanceAnalyzer:
             'n_results': len(filtered_docs)
         }
 
-# ==============================================================================
-# SEMANTIC QUERY PROCESSOR (Notebook'tan)
-# ==============================================================================
-
+# ============================================================================
+# SEMANTIC QUERY PROCESSOR (Notebook'tan alındı)
+# ============================================================================
 class SemanticQueryProcessor:
-    """Semantic similarity ile query processing"""
-
     def __init__(self, embedding_model_name: str):
         self.embedder = SentenceTransformer(embedding_model_name)
 
@@ -154,12 +139,6 @@ class SemanticQueryProcessor:
                 "taksitle aldım",
                 "kredi kartı taksit",
                 "ödeme planı"
-            ],
-            'konut': [
-                "ev aldım",
-                "daire satın aldım",
-                "ön ödemeli konut",
-                "konut finansmanı"
             ]
         }
 
@@ -167,6 +146,7 @@ class SemanticQueryProcessor:
         self.contract_embeddings = self._prepare_concept_embeddings(self.contract_type_examples)
 
     def _prepare_concept_embeddings(self, examples_dict: Dict) -> Dict:
+        import numpy as np
         result = {}
         for concept, examples in examples_dict.items():
             embeddings = self.embedder.encode(examples, convert_to_tensor=False)
@@ -174,6 +154,7 @@ class SemanticQueryProcessor:
         return result
 
     def _semantic_similarity(self, query: str, concept_embeddings: Dict, threshold: float = 0.5) -> List[tuple]:
+        import numpy as np
         query_embedding = self.embedder.encode([query], convert_to_tensor=False)[0]
 
         similarities = []
@@ -203,8 +184,7 @@ class SemanticQueryProcessor:
             type_map = {
                 'mesafeli': 'mesafeli sözleşme internet alışverişi',
                 'kapidan': 'kapıdan satış doğrudan satış',
-                'taksitli': 'taksitle satış kredi',
-                'konut': 'ön ödemeli konut finansmanı'
+                'taksitli': 'taksitle satış kredi'
             }
             enriched_parts.append(type_map.get(contract_type, ''))
 
@@ -228,10 +208,6 @@ class SemanticQueryProcessor:
                         {"file_name": {"$eq": "Law_TUKETICININ_KORUNMASI_HAKKINDA_KANUN.pdf"}},
                     ]
                 }
-            elif contract_type == 'konut':
-                metadata_filters = {"file_name": {"$eq": "Regulation_KONUT_FINANSMANI_SOZLESMELERI_YONETMELIGI.pdf"}}
-            elif contract_type == 'kapidan':
-                metadata_filters = {"file_name": {"$eq": "Regulation_DOGRUDAN_SATISLAR_HAKKINDA_YONETMELIK.pdf"}}
 
         return {
             'original': query,
@@ -242,60 +218,9 @@ class SemanticQueryProcessor:
             'metadata_filters': metadata_filters,
         }
 
-# ==============================================================================
-# ADAPTIVE SEARCH STRATEGY (Notebook'tan)
-# ==============================================================================
-
-class AdaptiveSearchStrategy:
-    def __init__(self, vector_store):
-        self.vector_store = vector_store
-
-    def determine_search_strategy(self, query_analysis: Dict) -> Dict:
-        has_strong_concept = any(score > 0.6 for _, score in query_analysis.get('concept_scores', []))
-        has_clear_contract = query_analysis.get('contract_type') is not None
-
-        strategy = {
-            'semantic_weight': 0.5,
-            'filtered_weight': 0.3,
-            'hybrid_weight': 0.2,
-            'n_results_semantic': 10,
-            'n_results_filtered': 5,
-            'quality_threshold': 'good'
-        }
-
-        if has_strong_concept and has_clear_contract:
-            strategy.update({
-                'semantic_weight': 0.4,
-                'filtered_weight': 0.5,
-                'n_results_semantic': 8,
-                'n_results_filtered': 7,
-            })
-        elif has_strong_concept:
-            strategy.update({
-                'semantic_weight': 0.7,
-                'filtered_weight': 0.1,
-                'n_results_semantic': 15,
-                'quality_threshold': 'acceptable'
-            })
-        elif has_clear_contract:
-            strategy.update({
-                'semantic_weight': 0.3,
-                'filtered_weight': 0.6,
-                'n_results_filtered': 10,
-            })
-        else:
-            strategy.update({
-                'semantic_weight': 0.6,
-                'n_results_semantic': 20,
-                'quality_threshold': 'acceptable'
-            })
-
-        return strategy
-
-# ==============================================================================
-# SMART VECTOR STORE (Notebook'tan)
-# ==============================================================================
-
+# ============================================================================
+# SMART VECTOR STORE (Notebook'tan alındı)
+# ============================================================================
 class SmartVectorStore:
     def __init__(self, persist_dir: str, collection_name: str, model_name: str):
         self.persist_directory = persist_dir
@@ -307,7 +232,7 @@ class SmartVectorStore:
         )
 
         self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=model_name, device=DEVICE
+            model_name=model_name, device="cpu"
         )
 
         try:
@@ -321,26 +246,26 @@ class SmartVectorStore:
             self.collection = None
 
         self.semantic_processor = SemanticQueryProcessor(model_name)
-        self.search_strategy = AdaptiveSearchStrategy(self)
         self.distance_analyzer = DistanceAnalyzer()
 
     def smart_search(self, query: str, n_results: int = 5) -> Dict:
+        if not self.collection:
+            return {'documents': [], 'metadatas': [], 'distances': [], 'n_results': 0}
+
         analysis = self.semantic_processor.enrich_query(query)
 
         print(f"\n🔍 Sorgu: '{query}'")
-        print(f"📊 Semantic Analiz:")
-        print(f"   • Sözleşme tipi: {analysis['contract_type'] or 'Belirsiz'}")
-        print(f"   • Yasal konseptler: {[f'{c} ({s:.2f})' for c, s in analysis.get('concept_scores', [])]}")
+        print(f"📊 Sözleşme tipi: {analysis['contract_type'] or 'Belirsiz'}")
 
-        strategy = self.search_strategy.determine_search_strategy(analysis)
         all_results = []
 
         # Filtered search
         if analysis['metadata_filters']:
+            print("1️⃣ Filtered search...")
             try:
                 filtered = self.collection.query(
                     query_texts=[analysis['enriched']],
-                    n_results=strategy['n_results_filtered'],
+                    n_results=n_results,
                     where=analysis['metadata_filters'],
                     include=["documents", "metadatas", "distances"]
                 )
@@ -354,17 +279,17 @@ class SmartVectorStore:
                         all_results.append({
                             'document': doc,
                             'metadata': meta,
-                            'distance': dist,
-                            'strategy': 'filtered',
-                            'score': dist * (1 - strategy['filtered_weight'])
+                            'distance': dist
                         })
+                    print(f"   ✅ {len(filtered['ids'][0])} sonuç")
             except Exception as e:
-                print(f"⚠️ Filtre hatası: {e}")
+                print(f"   ⚠️ Filtre hatası: {e}")
 
         # Semantic search
+        print("2️⃣ Semantic search...")
         semantic = self.collection.query(
             query_texts=[analysis['enriched']],
-            n_results=strategy['n_results_semantic'],
+            n_results=n_results * 2,
             include=["documents", "metadatas", "distances"]
         )
 
@@ -376,32 +301,28 @@ class SmartVectorStore:
             all_results.append({
                 'document': doc,
                 'metadata': meta,
-                'distance': dist,
-                'strategy': 'semantic',
-                'score': dist * (1 - strategy['semantic_weight'])
+                'distance': dist
             })
 
-        # Deduplicate & sort
+        # Remove duplicates
         seen_ids = set()
         unique_results = []
-
-        for r in sorted(all_results, key=lambda x: x['score']):
+        for r in sorted(all_results, key=lambda x: x['distance']):
             doc_hash = hash(r['document'][:100])
             if doc_hash not in seen_ids:
                 seen_ids.add(doc_hash)
                 unique_results.append(r)
 
-        # Filter by quality
         final_results = self.distance_analyzer.filter_by_quality(
             {
                 'documents': [r['document'] for r in unique_results],
                 'metadatas': [r['metadata'] for r in unique_results],
                 'distances': [r['distance'] for r in unique_results],
             },
-            quality_level=strategy['quality_threshold']
+            quality_level='acceptable'
         )
 
-        print(f"\n✅ Toplam {final_results['n_results']} kaliteli sonuç")
+        print(f"✅ Toplam {final_results['n_results']} kaliteli sonuç\n")
 
         return {
             'query': query,
@@ -412,34 +333,87 @@ class SmartVectorStore:
             'analysis': analysis
         }
 
-# ==============================================================================
-# PROMPT ENGINEERING (Notebook'tan optimize edilmiş)
-# ==============================================================================
-
+# ============================================================================
+# SOURCE FORMATTER
+# ============================================================================
 def format_source(doc: str, meta: Dict) -> str:
-    """Kaynak bilgisini akıllıca çıkarır"""
-    doc_type = meta.get('doc_type', '')
-    content_lines = doc.strip().split('\n')
-
-    if doc_type == 'court_decision':
-        for line in content_lines[:3]:
-            if line.startswith('T.C.'):
-                mahkeme_adi = line.replace('T.C.', '').strip()
-                return mahkeme_adi
-
-    elif doc_type in ['regulation', 'law']:
-        if content_lines:
-            baslik = content_lines[0].strip()
-            article_num = meta.get('article_number')
-            if article_num:
-                return f"{baslik} - Madde {article_num}"
-            return baslik
-
+    """Kaynak bilgisini formatlar"""
     file_name = meta.get('file_name', 'Kaynak')
+    
+    if file_name.startswith('Regulation_'):
+        clean_name = file_name.replace('Regulation_', '').replace('.pdf', '').replace('_', ' ')
+        article_num = meta.get('article_number')
+        if article_num:
+            return f"{clean_name} - Madde {article_num}"
+        return clean_name
+    elif file_name.startswith('Law_'):
+        clean_name = file_name.replace('Law_', '').replace('.pdf', '').replace('_', ' ')
+        article_num = meta.get('article_number')
+        if article_num:
+            return f"{clean_name} - Madde {article_num}"
+        return clean_name
+    
     return file_name.replace('.pdf', '').replace('_', ' ')
 
+# ============================================================================
+# MODEL İNİTİALİZATİON
+# ============================================================================
+def initialize_model():
+    """
+    Gemini modelini ve RAG sistemini yükler.
+    """
+    global gemini_model, vector_store
+    
+    try:
+        # 1. Gemini'yi yapılandır
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY bulunamadı. Lütfen .env dosyasını kontrol edin.")
+            
+        genai.configure(api_key=api_key)
+        gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+        print("✅ Google Gemini modeli yüklendi.")
+        
+        # 2. ChromaDB Vector Store'u yükle
+        vector_store = SmartVectorStore(
+            CHROMADB_PERSIST_DIR,
+            CHROMADB_COLLECTION_NAME,
+            EMBEDDING_MODEL_NAME
+        )
+        
+        if vector_store.collection is None:
+            print("⚠️ ChromaDB yüklenemedi! RAG çalışmayacak, sadece PDF upload çalışacak.")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Model yüklenirken hata: {e}")
+        gemini_model = None
+        vector_store = None
+        return False
+
+# ============================================================================
+# PDF TEXT EXTRACTION
+# ============================================================================
+def _extract_text_from_pdf(pdf_file_stream):
+    """PDF'ten metin çıkarır"""
+    try:
+        pdf_reader = PyPDF2.PdfReader(pdf_file_stream)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() or ""
+
+        print(f"✅ PDF'ten {len(text)} karakter metin çıkarıldı.")
+        return text
+    except Exception as e:
+        print(f"❌ PDF okunurken hata: {e}")
+        return None
+
+# ============================================================================
+# SMART PROMPT CREATION
+# ============================================================================
 def create_smart_prompt(query: str, search_results: Dict) -> tuple:
-    """Semantic analiz sonuçlarına göre optimized prompt"""
+    """RAG için akıllı prompt oluşturur"""
     analysis = search_results.get('analysis', {})
 
     contexts = []
@@ -462,174 +436,138 @@ def create_smart_prompt(query: str, search_results: Dict) -> tuple:
     elif 'ayipli_mal' in analysis.get('legal_concepts', []):
         contract_guidance = "\n• Bu ayıplı mal sorusu - tüketici haklarını ve çözüm yollarını açıkla"
 
-    system_prompt = f"""Sen Türk Tüketici Hukuku uzmanısın.
+    system_prompt = f"""
+Sen Türkiye'de aktif olarak çalışan bir avukatsın.
+
+ROLÜN:
+Kullanıcılara hukuki danışmanlık verir gibi,
+uygulamaya dönük, pratik ve yol gösterici cevaplar verirsin.
 
 KURALLAR:
-1. SADECE verilen kaynaklardaki bilgileri kullan
-2. Net, anlaşılır ve yapılandırılmış yanıt ver
-3. İlk cümlede soruya doğrudan yanıt ver
-4. Kaynak numaralarını belirt (örn: [Kaynak 1])
-5. Yasal dayanakları (madde numarası) belirt
-6. Pratik öneriler ver{contract_guidance}
+- Akademik veya tez dili kullanma
+- "verilen kaynaklara göre", "dokümanlar şunu söylüyor" gibi ifadeler kullanma
+- Kaynak numarası, belge adı veya PDF referansı belirtme
+- Bilgiyi içselleştirerek anlat
 
-FORMAT:
-• Ana yanıt (2-3 cümle)
-• Yasal dayanak (1 cümle)
-• Pratik öneri (1 cümle - varsa)
+CEVAP TARZI:
+- Net
+- Resmi ama insani
+- Gereksiz empati yok, samimi giriş var
+- Avukat refleksiyle yönlendirici
+
+ZORUNLU CEVAP YAPISI:
+1. Kısa bir geçmiş olsun / durum özeti
+2. Kullanıcının hangi hakları olduğu
+3. Adım adım ne yapması gerektiği
+4. Alternatif yollar (dava, tahkim, başvuru)
+5. Pratik uyarılar (sık yapılan hatalar)
+6. Kaynakları belirtmek
+
+HUKUKİ SINIR:
+Somut olayda mutlaka bir avukata danışılması gerektiğini
+nazikçe belirt ama cevabı bundan kaçmak için kullanma.
+{contract_guidance}
 """
 
-    user_prompt = f"""KAYNAKLAR:
+    user_prompt = f"""
+Aşağıdaki hukuki bilgiler senin içindir.
+Kullanıcıya cevap verirken bu metinlere atıf yapma.
 
+HUKUKİ BAĞLAM:
 {context_block}
 
-SORU: {query}
+SORU:
+{query}
+"""
 
-Yukarıdaki kaynaklara göre yanıt ver."""
+    user_prompt += """
+
+Cevabını aşağıdaki şablona uygun yaz:
+
+Geçmiş olsun.
+
+[Durumun kısa özeti]
+
+**ÇOK ÖNEMLİ:** 
+Cevabında her hukuki bilgi, süre, hak veya yükümlülükten bahsettiğinde,
+hemen arkasına [1], [2], [3] gibi kaynak numarası koy.
+
+Örnek:
+"Cayma hakkı 14 gün içinde kullanılabilir [1]. Bu süre içinde..."
+"Mesafeli sözleşmelerde iade ücretsizdir [2]."
+
+Cevabını şablona uygun yaz , kaynak kullandığın bir kısımda [kaynaklı] yaz:
+1. Haklarınız [kaynaklı]
+2. Yapılması gerekenler [kaynaklı]
+3. Süreç nasıl ilerler [kaynaklı]
+4. Alternatif yollar [kaynaklı]
+5. Pratik öneriler [kaynaklı]
+6. Kaynakları belirtmek [kaynaklı]
+"""
 
     return system_prompt, user_prompt, source_details
 
-# ==============================================================================
-# MODEL INITIALIZATION
-# ==============================================================================
-
-def initialize_model():
-    """Tüm sistem bileşenlerini yükler"""
-    global llm_model, llm_tokenizer, vector_store
-
-    try:
-        print("\n" + "="*60)
-        print("🚀 HUKUK PUSULASI RAG SİSTEMİ BAŞLATILIYOR")
-        print("="*60)
-
-        # 1. LLM Yükleme (CPU için optimize edilmiş)
-        print(f"\n📄 LLM yükleniyor: {HF_MODEL_ID}...")
-
-        # Device tespiti
-        if torch.cuda.is_available():
-            device = "cuda"
-            print("🎮 NVIDIA GPU kullanılıyor")
-        elif torch.backends.mps.is_available():
-            device = "mps"
-            print("🍎 Apple Silicon GPU (MPS) kullanılıyor")
-        else:
-            device = "cpu"
-            print("💻 CPU kullanılıyor")
-
-        # Tokenizer yükle
-        llm_tokenizer = AutoTokenizer.from_pretrained(
-            HF_MODEL_ID,
-            trust_remote_code=True
-        )
-
-        # Model yükle (CPU/MPS uyumlu - quantization YOK)
-        print("⏳ Model yükleniyor (bu biraz zaman alabilir)...")
-
-        llm_model = AutoModelForCausalLM.from_pretrained(
-            HF_MODEL_ID,
-            trust_remote_code=True,
-            low_cpu_mem_usage=True,
-            torch_dtype=torch.float32 if device == "cpu" else torch.float16,
-            device_map="cpu" if device == "cpu" else "auto"
-        )
-
-        llm_model.eval()  # Inference mode
-        print("✅ LLM başarıyla yüklendi!")
-
-        # 2. Vector Store Yükleme
-        print(f"\n📚 Vector store yükleniyor: {CHROMADB_PERSIST_DIR}...")
-        vector_store = SmartVectorStore(
-            CHROMADB_PERSIST_DIR,
-            CHROMADB_COLLECTION_NAME,
-            EMBEDDING_MODEL_NAME
-        )
-        print("✅ Vector store başarıyla yüklendi!")
-
-        print(f"\n✅ SİSTEM HAZIR! (Device: {device})\n")
-        return True
-
-    except Exception as e:
-        print(f"❌ Model yükleme hatası: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-# ==============================================================================
+# ============================================================================
 # MAIN RESPONSE FUNCTION
-# ==============================================================================
-
-def get_model_response(user_message: str, pdf_file_stream=None) -> str:
+# ============================================================================
+def get_model_response(user_message, pdf_file_stream=None):
     """
-    Ana RAG fonksiyonu - kullanıcı mesajını işler ve yanıt üretir
+    Ana RAG fonksiyonu - ChromaDB'den arama yapar ve Gemini ile yanıt üretir
     """
-    if llm_model is None or vector_store is None:
-        return "❌ Model düzgün yüklenemedi. Lütfen sunucu loglarına bakın."
+    if gemini_model is None:
+        return "Model düzgün yüklenemedi. Lütfen sunucu loglarına bakın."
 
-    try:
-        # 1. Smart Search (RAG)
+    # PDF ile çalışma (eski sistem)
+    if pdf_file_stream:
+        pdf_context = _extract_text_from_pdf(pdf_file_stream)
+        if pdf_context:
+            final_prompt = f"""
+Sen Türkiye'de çalışan bir avukatsın.
+
+Aşağıdaki metni yalnızca hukuki dayanak olarak kullan.
+Kullanıcıya avukat gibi, yol gösterici ve pratik cevap ver.
+
+METİN:
+{pdf_context}
+
+SORU:
+{user_message}
+"""
+
+            try:
+                response = gemini_model.generate_content(final_prompt)
+                return response.text
+            except Exception as e:
+                return f"Hata: {e}"
+
+    # ChromaDB RAG ile çalışma (YENİ SİSTEM)
+    if vector_store and vector_store.collection:
+        # 1. Semantic search yap
         search_results = vector_store.smart_search(query=user_message, n_results=5)
-
+        
         if search_results['n_results'] == 0:
-            return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı. Sorunuzu farklı kelimelerle tekrar sorabilir misiniz?"
+            return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı."
 
-        # 2. Smart Prompt Oluştur
+        # 2. Prompt oluştur
         system_prompt, user_prompt, source_details = create_smart_prompt(user_message, search_results)
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
+        # 3. Gemini'ye gönder
+        try:
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            response = gemini_model.generate_content(full_prompt)
+            
+            # Kaynakları ekle
+            response_text = response.text
+            sources_text = "\n\n**KAYNAKLAR:**\n" + "\n".join(source_details)
+            
+            return response_text + sources_text
 
-        # 3. LLM'den Yanıt Al
-        # Chat template uygula
-        if hasattr(llm_tokenizer, 'apply_chat_template'):
-            input_text = llm_tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-        else:
-            # Fallback: Manuel format
-            input_text = f"{system_prompt}\n\nUser: {user_prompt}\nAssistant:"
+        except Exception as e:
+            return f"Model cevabı üretirken hata: {e}"
 
-        # Tokenize
-        inputs = llm_tokenizer(
-            input_text,
-            return_tensors="pt",
-            truncation=True,
-            max_length=MAX_SEQ_LENGTH
-        )
-
-        # Device'a taşı
-        device = llm_model.device
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-
-        # Generate
-        with torch.no_grad():
-            outputs = llm_model.generate(
-                **inputs,
-                max_new_tokens=500,
-                temperature=0.4,
-                top_p=0.9,
-                repetition_penalty=1.15,
-                do_sample=True,
-                pad_token_id=llm_tokenizer.eos_token_id,
-            )
-
-        # Decode
-        response = llm_tokenizer.decode(
-            outputs[0][len(inputs['input_ids'][0]):],
-            skip_special_tokens=True
-        )
-
-        # 4. Kaynakları Ekle
-        if source_details:
-            source_block = "\n\n" + "─"*50 + "\n📚 **Kaynaklar:**\n" + "\n".join([f"• {s}" for s in source_details])
-            response += source_block
-
-        return response.strip()
-
+    # ChromaDB yoksa normal yanıt
+    try:
+        response = gemini_model.generate_content(user_message)
+        return response.text
     except Exception as e:
-        print(f"❌ Model cevabı üretirken hata: {e}")
-        import traceback
-        traceback.print_exc()
-        return f"Üzgünüm, yanıt üretirken bir hata oluştu: {e}"
+        return f"Hata: {e}"
