@@ -6,19 +6,30 @@ function AccessibilityPanel() {
   const [settings, setSettings] = useState({
     fontSize: 'normal',
     highContrast: false,
-    screenReader: false,
-    keyboardNav: true,
-    voiceInput: false,
-    autoRead: false,
     reducedMotion: false,
-    focusIndicator: true
+    focusIndicator: true,
+    lineHeight: 'normal',
+    letterSpacing: 'normal'
   });
 
   // LocalStorage'dan ayarları yükle
   useEffect(() => {
     const savedSettings = localStorage.getItem('accessibilitySettings');
     if (savedSettings) {
-      setSettings(JSON.parse(savedSettings));
+      try {
+        const parsed = JSON.parse(savedSettings);
+        setSettings(prev => ({
+          ...prev,
+          ...parsed,
+          // Eski ayarları temizle
+          screenReader: undefined,
+          keyboardNav: undefined,
+          voiceInput: undefined,
+          autoRead: undefined
+        }));
+      } catch (e) {
+        console.error('Ayarlar yüklenirken hata:', e);
+      }
     }
   }, []);
 
@@ -31,13 +42,34 @@ function AccessibilityPanel() {
   const applyAccessibilitySettings = (settings) => {
     const root = document.documentElement;
 
-    // Font boyutu
+    // Font boyutu - CSS custom property kullan
     if (settings.fontSize === 'large') {
-      root.style.fontSize = '18px';
+      root.style.setProperty('--base-font-size', '18px');
+      root.style.setProperty('--font-size-multiplier', '1.125');
     } else if (settings.fontSize === 'xlarge') {
-      root.style.fontSize = '22px';
+      root.style.setProperty('--base-font-size', '22px');
+      root.style.setProperty('--font-size-multiplier', '1.375');
     } else {
-      root.style.fontSize = '16px';
+      root.style.setProperty('--base-font-size', '16px');
+      root.style.setProperty('--font-size-multiplier', '1');
+    }
+
+    // Satır yüksekliği
+    if (settings.lineHeight === 'large') {
+      root.style.setProperty('--line-height-multiplier', '1.8');
+    } else if (settings.lineHeight === 'xlarge') {
+      root.style.setProperty('--line-height-multiplier', '2.2');
+    } else {
+      root.style.setProperty('--line-height-multiplier', '1.5');
+    }
+
+    // Harf aralığı
+    if (settings.letterSpacing === 'wide') {
+      root.style.setProperty('--letter-spacing', '0.1em');
+    } else if (settings.letterSpacing === 'xwide') {
+      root.style.setProperty('--letter-spacing', '0.15em');
+    } else {
+      root.style.setProperty('--letter-spacing', 'normal');
     }
 
     // Yüksek kontrast
@@ -67,43 +99,18 @@ function AccessibilityPanel() {
       ...prev,
       [key]: value
     }));
-
-    // Ses bildirimi (screen reader için)
-    if (settings.screenReader) {
-      announceChange(key, value);
-    }
-  };
-
-  const announceChange = (setting, value) => {
-    const message = `${setting} ${value ? 'açıldı' : 'kapatıldı'}`;
-    const announcement = document.createElement('div');
-    announcement.setAttribute('aria-live', 'polite');
-    announcement.setAttribute('aria-atomic', 'true');
-    announcement.className = 'sr-only';
-    announcement.textContent = message;
-    document.body.appendChild(announcement);
-
-    setTimeout(() => {
-      document.body.removeChild(announcement);
-    }, 1000);
   };
 
   const resetSettings = () => {
     const defaultSettings = {
       fontSize: 'normal',
       highContrast: false,
-      screenReader: false,
-      keyboardNav: true,
-      voiceInput: false,
-      autoRead: false,
       reducedMotion: false,
-      focusIndicator: true
+      focusIndicator: true,
+      lineHeight: 'normal',
+      letterSpacing: 'normal'
     };
     setSettings(defaultSettings);
-
-    if (settings.screenReader) {
-      announceChange('Erişilebilirlik ayarları', 'sıfırlandı');
-    }
   };
 
   return (
@@ -129,7 +136,7 @@ function AccessibilityPanel() {
           aria-modal="true"
         >
           <div className="accessibility-header">
-            <h2 id="accessibility-title">🔍 Erişilebilirlik Ayarları</h2>
+            <h2 id="accessibility-title">♿ Erişilebilirlik Ayarları</h2>
             <button
               className="close-btn"
               onClick={() => setIsOpen(false)}
@@ -140,10 +147,9 @@ function AccessibilityPanel() {
           </div>
 
           <div className="accessibility-content">
-
             {/* Görsel Erişilebilirlik */}
             <section className="accessibility-section">
-              <h3>👁️ Görsel Erişilebilirlik</h3>
+              <h3>👁️ Görsel Ayarlar</h3>
 
               <div className="setting-item">
                 <label htmlFor="fontSize">Yazı Boyutu:</label>
@@ -156,6 +162,35 @@ function AccessibilityPanel() {
                   <option value="large">Büyük (18px)</option>
                   <option value="xlarge">Çok Büyük (22px)</option>
                 </select>
+                <small>Tüm sayfadaki yazı boyutunu değiştirir</small>
+              </div>
+
+              <div className="setting-item">
+                <label htmlFor="lineHeight">Satır Yüksekliği:</label>
+                <select
+                  id="lineHeight"
+                  value={settings.lineHeight}
+                  onChange={(e) => handleSettingChange('lineHeight', e.target.value)}
+                >
+                  <option value="normal">Normal</option>
+                  <option value="large">Büyük</option>
+                  <option value="xlarge">Çok Büyük</option>
+                </select>
+                <small>Metin satırları arasındaki boşluğu artırır</small>
+              </div>
+
+              <div className="setting-item">
+                <label htmlFor="letterSpacing">Harf Aralığı:</label>
+                <select
+                  id="letterSpacing"
+                  value={settings.letterSpacing}
+                  onChange={(e) => handleSettingChange('letterSpacing', e.target.value)}
+                >
+                  <option value="normal">Normal</option>
+                  <option value="wide">Geniş</option>
+                  <option value="xwide">Çok Geniş</option>
+                </select>
+                <small>Harf arasındaki boşluğu artırır (disleksi için faydalı)</small>
               </div>
 
               <div className="setting-item">
@@ -168,8 +203,13 @@ function AccessibilityPanel() {
                   <span className="checkmark"></span>
                   Yüksek Kontrast
                 </label>
-                <small>Renkler arasındaki kontrastı artırır</small>
+                <small>Renkler arasındaki kontrastı artırır, okumayı kolaylaştırır</small>
               </div>
+            </section>
+
+            {/* Hareket ve Navigasyon */}
+            <section className="accessibility-section">
+              <h3>🎬 Hareket ve Navigasyon</h3>
 
               <div className="setting-item">
                 <label className="checkbox-label">
@@ -181,25 +221,7 @@ function AccessibilityPanel() {
                   <span className="checkmark"></span>
                   Azaltılmış Hareket
                 </label>
-                <small>Animasyonları ve geçişleri azaltır</small>
-              </div>
-            </section>
-
-            {/* Navigasyon Erişilebilirlik */}
-            <section className="accessibility-section">
-              <h3>⌨️ Navigasyon</h3>
-
-              <div className="setting-item">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.keyboardNav}
-                    onChange={(e) => handleSettingChange('keyboardNav', e.target.checked)}
-                  />
-                  <span className="checkmark"></span>
-                  Klavye Navigasyonu
-                </label>
-                <small>Tab ile gezinme ve kısayol tuşları</small>
+                <small>Animasyonları ve geçişleri azaltır (vestibüler bozukluklar için)</small>
               </div>
 
               <div className="setting-item">
@@ -212,41 +234,9 @@ function AccessibilityPanel() {
                   <span className="checkmark"></span>
                   Gelişmiş Odak Göstergesi
                 </label>
-                <small>Seçili öğeleri daha belirgin gösterir</small>
+                <small>Klavye ile gezinirken seçili öğeleri daha belirgin gösterir</small>
               </div>
             </section>
-
-            {/* Ekran Okuyucu Desteği */}
-            <section className="accessibility-section">
-              <h3>🔊 Ekran Okuyucu</h3>
-
-              <div className="setting-item">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.screenReader}
-                    onChange={(e) => handleSettingChange('screenReader', e.target.checked)}
-                  />
-                  <span className="checkmark"></span>
-                  Ekran Okuyucu Desteği
-                </label>
-                <small>NVDA, JAWS ve diğer ekran okuyucular için optimizasyon</small>
-              </div>
-
-              <div className="setting-item">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.autoRead}
-                    onChange={(e) => handleSettingChange('autoRead', e.target.checked)}
-                  />
-                  <span className="checkmark"></span>
-                  Otomatik Okuma
-                </label>
-                <small>Chatbot yanıtlarını otomatik seslendirir</small>
-              </div>
-            </section>
-
           </div>
 
           <div className="accessibility-footer">
@@ -258,7 +248,7 @@ function AccessibilityPanel() {
             </button>
 
             <div className="accessibility-info">
-              <h4>📋 Klavye Kısayolları:</h4>
+              <h4>⌨️ Klavye Kısayolları:</h4>
               <ul>
                 <li><kbd>Alt + A</kbd>: Erişilebilirlik paneli</li>
                 <li><kbd>Tab</kbd>: Sonraki öğe</li>
@@ -275,14 +265,13 @@ function AccessibilityPanel() {
       <KeyboardShortcuts
         isAccessibilityOpen={isOpen}
         onToggleAccessibility={() => setIsOpen(!isOpen)}
-        settings={settings}
       />
     </>
   );
 }
 
 // Klavye kısayolları bileşeni
-function KeyboardShortcuts({ isAccessibilityOpen, onToggleAccessibility, settings }) {
+function KeyboardShortcuts({ isAccessibilityOpen, onToggleAccessibility }) {
   useEffect(() => {
     const handleKeyDown = (event) => {
       // Alt + A: Erişilebilirlik paneli
@@ -295,33 +284,11 @@ function KeyboardShortcuts({ isAccessibilityOpen, onToggleAccessibility, setting
       if (event.key === 'Escape' && isAccessibilityOpen) {
         onToggleAccessibility();
       }
-
-      // Screen reader duyuru
-      if (settings.screenReader && event.key === 'F1') {
-        event.preventDefault();
-        const announcement = "HukukPusulası erişilebilir tüketici hakları platformuna hoş geldiniz. Alt+A ile erişilebilirlik ayarlarını açabilirsiniz.";
-        announceToScreenReader(announcement);
-      }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isAccessibilityOpen, onToggleAccessibility, settings.screenReader]);
-
-  const announceToScreenReader = (message) => {
-    const announcement = document.createElement('div');
-    announcement.setAttribute('aria-live', 'assertive');
-    announcement.setAttribute('aria-atomic', 'true');
-    announcement.className = 'sr-only';
-    announcement.textContent = message;
-    document.body.appendChild(announcement);
-
-    setTimeout(() => {
-      if (document.body.contains(announcement)) {
-        document.body.removeChild(announcement);
-      }
-    }, 2000);
-  };
+  }, [isAccessibilityOpen, onToggleAccessibility]);
 
   return null;
 }

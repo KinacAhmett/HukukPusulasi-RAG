@@ -5,6 +5,8 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  line-height: var(--line-height-multiplier, 1.5);
+  letter-spacing: var(--letter-spacing, normal);
 }
 
 code {

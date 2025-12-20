@@ -31,11 +31,59 @@ function ChatPage() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('sidebarWidth');
+    return saved ? parseInt(saved, 10) : 280; // Varsayılan 280px
+  });
+  const [isResizing, setIsResizing] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const sidebarRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // Sidebar resize işlevselliği
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isResizing) return;
+
+      const newWidth = e.clientX;
+      const minWidth = 200;
+      const maxWidth = 500;
+
+      if (newWidth >= minWidth && newWidth <= maxWidth) {
+        setSidebarWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      if (sidebarWidth) {
+        localStorage.setItem('sidebarWidth', sidebarWidth.toString());
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, sidebarWidth]);
+
+  const handleResizeStart = (e) => {
+    e.preventDefault();
+    setIsResizing(true);
   };
 
   const loadChatSessions = useCallback(async () => {
@@ -64,7 +112,7 @@ function ChatPage() {
     // console.log('📊 Messages güncellendi:', messages.length, 'mesaj var'); // Debug
     // console.log('📋 Messages array:', messages); // Debug
     scrollToBottom();
-  }, [messages]);
+  }, [messages, isLoading]);
 
   // Backend bağlantı kontrolü
 useEffect(() => {
@@ -142,6 +190,9 @@ useEffect(() => {
     }
 
     try {
+      // Loading başlat
+      setIsLoading(true);
+
       // --- BURASI DEĞİŞTİ (JSON -> FORMDATA) ---
 
       // 4. Veri paketi olarak 'FormData' oluştur
@@ -198,6 +249,9 @@ useEffect(() => {
         sender: "bot",
         timestamp: new Date()
       }]);
+    } finally {
+      // Loading'i bitir
+      setIsLoading(false);
     }
   };
 
@@ -350,13 +404,28 @@ useEffect(() => {
       <Header />
       <div className="chatpage-container">
         {/* Sidebar */}
-      <div className={`chatpage-sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
+      <div
+        ref={sidebarRef}
+        className={`chatpage-sidebar ${sidebarOpen ? 'sidebar-open' : ''} ${isResizing ? 'resizing' : ''}`}
+        style={sidebarOpen ? { width: `${sidebarWidth}px` } : {}}
+      >
         <div className="sidebar-header">
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="menu-toggle">
             ☰
           </button>
           {sidebarOpen && <h3 className="sidebar-title">Hukuk Pusulası</h3>}
         </div>
+
+        {/* Resize Handle */}
+        {sidebarOpen && (
+          <div
+            className="sidebar-resize-handle"
+            onMouseDown={handleResizeStart}
+            aria-label="Sidebar genişliğini ayarla"
+            role="separator"
+            aria-orientation="vertical"
+          />
+        )}
 
         {!sidebarOpen && (
           <div className="compact-buttons">
@@ -490,6 +559,28 @@ useEffect(() => {
               </div>
             ))
           )}
+
+          {/* Loading Indicator */}
+          {isLoading && (
+            <div className="message-wrapper">
+              <div className="message-container bot">
+                <div className="message-avatar">
+                  ⚖️
+                </div>
+                <div className="message-content">
+                  <div className="message-text loading-message">
+                    <div className="typing-indicator">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                    <span className="loading-text">Yanıt hazırlanıyor...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
 
