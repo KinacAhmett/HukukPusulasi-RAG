@@ -30,7 +30,7 @@ function AccessibilityPanel() {
 
   const applyAccessibilitySettings = (settings) => {
     const root = document.documentElement;
-    
+
     // Font boyutu
     if (settings.fontSize === 'large') {
       root.style.fontSize = '18px';
@@ -82,7 +82,7 @@ function AccessibilityPanel() {
     announcement.className = 'sr-only';
     announcement.textContent = message;
     document.body.appendChild(announcement);
-    
+
     setTimeout(() => {
       document.body.removeChild(announcement);
     }, 1000);
@@ -100,7 +100,7 @@ function AccessibilityPanel() {
       focusIndicator: true
     };
     setSettings(defaultSettings);
-    
+
     if (settings.screenReader) {
       announceChange('Erişilebilirlik ayarları', 'sıfırlandı');
     }
@@ -122,7 +122,7 @@ function AccessibilityPanel() {
 
       {/* Erişilebilirlik Paneli */}
       {isOpen && (
-        <div 
+        <div
           className="accessibility-panel"
           role="dialog"
           aria-labelledby="accessibility-title"
@@ -130,7 +130,7 @@ function AccessibilityPanel() {
         >
           <div className="accessibility-header">
             <h2 id="accessibility-title">🔍 Erişilebilirlik Ayarları</h2>
-            <button 
+            <button
               className="close-btn"
               onClick={() => setIsOpen(false)}
               aria-label="Paneli kapat"
@@ -140,14 +140,14 @@ function AccessibilityPanel() {
           </div>
 
           <div className="accessibility-content">
-            
+
             {/* Görsel Erişilebilirlik */}
             <section className="accessibility-section">
               <h3>👁️ Görsel Erişilebilirlik</h3>
-              
+
               <div className="setting-item">
                 <label htmlFor="fontSize">Yazı Boyutu:</label>
-                <select 
+                <select
                   id="fontSize"
                   value={settings.fontSize}
                   onChange={(e) => handleSettingChange('fontSize', e.target.value)}
@@ -188,7 +188,7 @@ function AccessibilityPanel() {
             {/* Navigasyon Erişilebilirlik */}
             <section className="accessibility-section">
               <h3>⌨️ Navigasyon</h3>
-              
+
               <div className="setting-item">
                 <label className="checkbox-label">
                   <input
@@ -219,7 +219,7 @@ function AccessibilityPanel() {
             {/* Ekran Okuyucu Desteği */}
             <section className="accessibility-section">
               <h3>🔊 Ekran Okuyucu</h3>
-              
+
               <div className="setting-item">
                 <label className="checkbox-label">
                   <input
@@ -250,13 +250,13 @@ function AccessibilityPanel() {
           </div>
 
           <div className="accessibility-footer">
-            <button 
+            <button
               className="reset-btn"
               onClick={resetSettings}
             >
               🔄 Ayarları Sıfırla
             </button>
-            
+
             <div className="accessibility-info">
               <h4>📋 Klavye Kısayolları:</h4>
               <ul>
@@ -272,7 +272,7 @@ function AccessibilityPanel() {
       )}
 
       {/* Klavye Kısayolları */}
-      <KeyboardShortcuts 
+      <KeyboardShortcuts
         isAccessibilityOpen={isOpen}
         onToggleAccessibility={() => setIsOpen(!isOpen)}
         settings={settings}
@@ -315,7 +315,7 @@ function KeyboardShortcuts({ isAccessibilityOpen, onToggleAccessibility, setting
     announcement.className = 'sr-only';
     announcement.textContent = message;
     document.body.appendChild(announcement);
-    
+
     setTimeout(() => {
       if (document.body.contains(announcement)) {
         document.body.removeChild(announcement);

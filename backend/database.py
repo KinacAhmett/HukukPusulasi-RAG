@@ -17,7 +17,7 @@ def init_db():
         # Veritabanına bağlan (dosya yoksa oluşturulur)
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        
+
         # 'conversations' adında bir tablo oluştur
         # Bu tablo, tüm sohbetleri tutacak
         cursor.execute('''
@@ -29,12 +29,22 @@ def init_db():
             timestamp DATETIME NOT NULL
         )
         ''')
-        
+
+        # 'sessions' tablosu - sohbet başlıklarını tutar
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sessions (
+            session_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )
+        ''')
+
         conn.commit() # Değişiklikleri kaydet
         conn.close()  # Bağlantıyı kapat
-        
+
         print(f"✅ [database] Veritabanı '{DB_NAME}' başarıyla başlatıldı.")
-        
+
     except Exception as e:
         print(f"❌ [database] HATA: Veritabanı başlatılırken sorun oluştu: {e}")
 
@@ -46,21 +56,21 @@ def log_message(session_id, sender, message):
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        
+
         # O anki zamanı al
         now = datetime.datetime.now()
-        
+
         # SQL sorgusu ile veriyi ekle
         cursor.execute('''
         INSERT INTO conversations (session_id, sender, message, timestamp)
         VALUES (?, ?, ?, ?)
         ''', (session_id, sender, message, now))
-        
+
         conn.commit()
         conn.close()
-        
+
         print(f"✅ [database] Mesaj loglandı: {sender} (Oturum: ...{session_id[-6:]})")
-        
+
     except Exception as e:
         print(f"❌ [database] HATA: Mesaj loglanırken sorun oluştu: {e}")
 
@@ -68,35 +78,41 @@ def get_all_sessions():
     """
     Sol kenar çubuğunu (sidebar) doldurmak için,
     veritabanındaki tüm benzersiz sohbet oturumlarının
-    ilk kullanıcı mesajını ve ID'sini getirir.
+    başlığını ve son mesaj tarihini getirir.
     """
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        
-        # Her 'session_id' için 'sender'='user' olan en eski mesajı (ilk soruyu)
-        # ve o oturumdaki en YENİ mesajın tarihini (lastMessage) al.
+
+        # Tüm session_id'leri conversations tablosundan al
+        # Sessions tablosunda başlık varsa onu kullan, yoksa ilk mesajı kullan
         query = """
-        SELECT 
-            t1.session_id, 
-            t1.message, 
-            (SELECT MAX(t2.timestamp) FROM conversations t2 WHERE t2.session_id = t1.session_id) as last_message
-        FROM conversations t1
-        WHERE t1.sender = 'user' AND t1.id IN (
-            SELECT MIN(t3.id)
-            FROM conversations t3
-            WHERE t3.sender = 'user'
-            GROUP BY t3.session_id
-        )
+        SELECT DISTINCT
+            c1.session_id,
+            COALESCE(s.title,
+                (SELECT c2.message FROM conversations c2
+                 WHERE c2.session_id = c1.session_id
+                 AND c2.sender = 'user'
+                 ORDER BY c2.id ASC LIMIT 1)) as title,
+            (SELECT MAX(c3.timestamp) FROM conversations c3
+             WHERE c3.session_id = c1.session_id) as last_message
+        FROM conversations c1
+        LEFT JOIN sessions s ON s.session_id = c1.session_id
         ORDER BY last_message DESC
         """
         cursor.execute(query)
         sessions = cursor.fetchall()
         conn.close()
-        
-        # [(session_id_1, ilk_mesaj_1, son_tarih_1), (session_id_2, ilk_mesaj_2, son_tarih_2), ...]
+
+        # Debug: İlk birkaç session'ı logla
+        if sessions:
+            print(f"🔍 [database] DEBUG: get_all_sessions - İlk 3 session:")
+            for i, (sid, title, last_msg) in enumerate(sessions[:3]):
+                print(f"  [{i+1}] session_id: ...{sid[-6:]}, title: {title[:40]}..., last_msg: {last_msg}")
+
+        # [(session_id_1, başlık_1, son_tarih_1), (session_id_2, başlık_2, son_tarih_2), ...]
         return sessions
-        
+
     except Exception as e:
         print(f"❌ [database] HATA: Oturumlar getirilirken sorun oluştu: {e}")
         return []
@@ -109,23 +125,23 @@ def get_chat_history(session_id):
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        
+
         query = """
-        SELECT sender, message, timestamp 
-        FROM conversations 
-        WHERE session_id = ? 
+        SELECT sender, message, timestamp
+        FROM conversations
+        WHERE session_id = ?
         ORDER BY timestamp ASC
         """
         cursor.execute(query, (session_id,))
         history = cursor.fetchall()
         conn.close()
-        
+
         # [('user', 'merhaba', '2025-11-07...'), ('bot', 'merhaba size...', '2025-11-07...')]
         return history
-        
+
     except Exception as e:
         print(f"❌ [database] HATA: Sohbet geçmişi getirilirken sorun oluştu: {e}")
-        return []        
+        return []
 
 # (Gelecek Adım - İstersek)
 # def get_chat_history(session_id):
@@ -142,23 +158,89 @@ def get_chat_history(session_id):
 
 def delete_chat(session_id):
     """
-    Belirli bir 'session_id'ye ait TÜM mesajları
+    Belirli bir 'session_id'ye ait TÜM mesajları ve session kaydını
     veritabanından kalıcı olarak SİLER.
     """
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        
-        # SQL'in DELETE komutunu kullanıyoruz
-        query = "DELETE FROM conversations WHERE session_id = ?"
-        
-        cursor.execute(query, (session_id,))
+
+        # Conversations tablosundan mesajları sil
+        cursor.execute("DELETE FROM conversations WHERE session_id = ?", (session_id,))
+
+        # Sessions tablosundan session kaydını sil
+        cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+
         conn.commit() # Değişikliği veritabanına işle
         conn.close()
-        
+
         print(f"✅ [database] Sohbet silindi: {session_id}")
         return True
-        
+
     except Exception as e:
         print(f"❌ [database] HATA: Sohbet silinirken sorun oluştu: {e}")
+        return False
+
+def save_session_title(session_id, title):
+    """
+    Bir sohbet oturumunun başlığını kaydeder veya günceller.
+    """
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        now = datetime.datetime.now()
+
+        # Eğer session zaten varsa güncelle, yoksa ekle
+        cursor.execute('''
+        INSERT OR REPLACE INTO sessions (session_id, title, created_at, updated_at)
+        VALUES (?, ?,
+            COALESCE((SELECT created_at FROM sessions WHERE session_id = ?), ?),
+            ?)
+        ''', (session_id, title, session_id, now, now))
+
+        conn.commit()
+        conn.close()
+
+        print(f"✅ [database] Başlık kaydedildi: {title[:30]}... (Oturum: ...{session_id[-6:]})")
+
+    except Exception as e:
+        print(f"❌ [database] HATA: Başlık kaydedilirken sorun oluştu: {e}")
+
+def get_session_title(session_id):
+    """
+    Belirli bir session_id'nin başlığını getirir.
+    Eğer başlık yoksa None döner.
+    """
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT title FROM sessions WHERE session_id = ?', (session_id,))
+        result = cursor.fetchone()
+        conn.close()
+
+        if result:
+            return result[0]
+        return None
+
+    except Exception as e:
+        print(f"❌ [database] HATA: Başlık getirilirken sorun oluştu: {e}")
+        return None
+
+def session_has_messages(session_id):
+    """
+    Belirli bir session_id için veritabanında mesaj olup olmadığını kontrol eder.
+    """
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT COUNT(*) FROM conversations WHERE session_id = ?', (session_id,))
+        count = cursor.fetchone()[0]
+        conn.close()
+
+        return count > 0
+
+    except Exception as e:
+        print(f"❌ [database] HATA: Mesaj kontrolü yapılırken sorun oluştu: {e}")
         return False

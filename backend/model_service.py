@@ -21,6 +21,8 @@ semantic_processor = None
 distance_analyzer = None
 # Session bazlı chat session'ları tutmak için dictionary
 chat_sessions = {}  # {session_id: ChatSession}
+# Session bazlı PDF içeriklerini tutmak için dictionary
+pdf_contexts = {}  # {session_id: str}
 
 # ============================================================================
 # YAPILANDIRMA
@@ -414,8 +416,8 @@ def _extract_text_from_pdf(pdf_file_stream):
 # ============================================================================
 # SMART PROMPT CREATION
 # ============================================================================
-def create_smart_prompt(query: str, search_results: Dict) -> tuple:
-    """RAG için akıllı prompt oluşturur"""
+def create_smart_prompt(query: str, search_results: Dict, pdf_context: Optional[str] = None) -> tuple:
+    """RAG için akıllı prompt oluşturur. PDF içeriği varsa onu da ekler."""
     analysis = search_results.get('analysis', {})
 
     contexts = []
@@ -477,6 +479,20 @@ Kullanıcıya cevap verirken bu metinlere atıf yapma.
 
 HUKUKİ BAĞLAM:
 {context_block}
+"""
+
+    # PDF içeriği varsa ekle
+    if pdf_context:
+        pdf_text = pdf_context.strip()[:2000] + "..." if len(pdf_context.strip()) > 2000 else pdf_context.strip()
+        user_prompt += f"""
+
+KULLANICININ YÜKLEDİĞİ PDF İÇERİĞİ:
+{pdf_text}
+
+**ÖNEMLİ:** Kullanıcının yüklediği PDF içeriğini de dikkate al. Hem yukarıdaki hukuki bağlamdaki bilgileri hem de PDF içeriğindeki bilgileri birleştirerek cevap ver.
+"""
+
+    user_prompt += f"""
 
 SORU:
 {query}
@@ -512,6 +528,53 @@ Not: Cevabın sonunda kaynaklar otomatik olarak listelenecektir.
     return system_prompt, user_prompt, source_details
 
 # ============================================================================
+# TITLE GENERATION FUNCTION
+# ============================================================================
+def generate_chat_title(user_message: str) -> str:
+    """
+    Kullanıcının ilk mesajından kısa bir başlık oluşturur.
+    Gemini'yi kullanarak maksimum 5-6 kelimelik özet başlık üretir.
+    """
+    if gemini_model is None:
+        # Model yoksa basit bir başlık oluştur
+        return user_message[:30] + '...' if len(user_message) > 30 else user_message
+
+    try:
+        title_prompt = f"""
+Aşağıdaki kullanıcı sorusundan, sohbet geçmişi için kısa ve öz bir başlık oluştur.
+
+KURALLAR:
+- Maksimum 5-6 kelime
+- Türkçe
+- Sorunun özünü yansıtmalı
+- Başlık formatında (büyük harf başlangıç)
+- Noktalama işareti yok
+
+KULLANICI SORUSU:
+{user_message}
+
+Sadece başlığı yaz, başka bir şey yazma:"""
+
+        response = gemini_model.generate_content(title_prompt)
+        title = response.text.strip()
+
+        # Başlığı temizle (gereksiz karakterleri kaldır)
+        title = title.replace('"', '').replace("'", '').strip()
+
+        # Eğer çok uzunsa kısalt
+        if len(title) > 50:
+            words = title.split()
+            title = ' '.join(words[:6])
+
+        print(f"✅ Başlık oluşturuldu: {title}")
+        return title
+
+    except Exception as e:
+        print(f"⚠️ Başlık oluşturulurken hata: {e}, varsayılan başlık kullanılıyor")
+        # Hata durumunda basit başlık
+        return user_message[:30] + '...' if len(user_message) > 30 else user_message
+
+# ============================================================================
 # MAIN RESPONSE FUNCTION
 # ============================================================================
 def get_model_response(user_message, pdf_file_stream=None, session_id=None):
@@ -525,7 +588,7 @@ def get_model_response(user_message, pdf_file_stream=None, session_id=None):
     # Session ID yoksa veya geçersizse, conversation history olmadan çalış
     use_history = session_id and session_id != 'null'
 
-    # PDF ile çalışma (eski sistem)
+    # PDF ile çalışma - RAG ile birleştirilmiş sistem
     if pdf_file_stream:
         pdf_context = _extract_text_from_pdf(pdf_file_stream)
         if pdf_context is None:
@@ -534,6 +597,45 @@ def get_model_response(user_message, pdf_file_stream=None, session_id=None):
         if not pdf_context.strip():
             return "Üzgünüm, yüklediğiniz PDF dosyasından metin çıkarılamadı. Dosya görüntü tabanlı (taranmış) bir PDF olabilir. Lütfen metin içeren bir PDF dosyası yükleyin."
 
+        # PDF içeriğini session'da sakla (sonraki mesajlarda kullanmak için)
+        if session_id and session_id != 'null':
+            pdf_contexts[session_id] = pdf_context
+            print(f"✅ PDF içeriği session {session_id} için kaydedildi ({len(pdf_context)} karakter)")
+
+        # PDF yüklendiğinde de RAG kullan (hem PDF hem RAG bilgileri)
+        if vector_store and vector_store.collection and user_message:
+            # Hem PDF hem RAG kullan
+            try:
+                # 1. RAG'den arama yap
+                search_results = vector_store.smart_search(query=user_message, n_results=5)
+
+                # 2. Prompt oluştur (PDF içeriği ile birlikte)
+                system_prompt, user_prompt, source_details = create_smart_prompt(
+                    user_message,
+                    search_results,
+                    pdf_context=pdf_context
+                )
+
+                # 3. Gemini'ye gönder
+                if use_history:
+                    full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                    if session_id not in chat_sessions:
+                        chat_sessions[session_id] = gemini_model.start_chat(history=[])
+                    response = chat_sessions[session_id].send_message(full_prompt)
+                else:
+                    full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                    response = gemini_model.generate_content(full_prompt)
+
+                # Kaynakları ekle
+                response_text = response.text
+                sources_text = "\n\n**KAYNAKLAR:**\n" + "\n".join(source_details)
+                return response_text + sources_text
+
+            except Exception as e:
+                print(f"⚠️ RAG ile PDF birleştirme hatası: {e}, sadece PDF ile devam ediliyor...")
+                # Hata durumunda sadece PDF ile devam et
+
+        # RAG yoksa veya hata varsa sadece PDF ile çalış
         final_prompt = f"""
 Sen Türkiye'de çalışan bir avukatsın.
 
@@ -560,16 +662,51 @@ SORU:
         except Exception as e:
             return f"Hata: {e}"
 
-    # ChromaDB RAG ile çalışma (YENİ SİSTEM)
+    # ChromaDB RAG ile çalışma (PDF yoksa veya PDF yüklendikten sonraki mesajlar)
     if vector_store and vector_store.collection:
+        # Eğer bu session'da daha önce PDF yüklendiyse, onu da kullan
+        session_pdf_context = None
+        if session_id and session_id != 'null' and session_id in pdf_contexts:
+            session_pdf_context = pdf_contexts[session_id]
+            print(f"✅ Session {session_id} için kaydedilmiş PDF içeriği kullanılıyor")
+
         # 1. Semantic search yap
         search_results = vector_store.smart_search(query=user_message, n_results=5)
 
         if search_results['n_results'] == 0:
+            # Eğer PDF içeriği varsa sadece PDF ile devam et
+            if session_pdf_context:
+                print("⚠️ RAG'de sonuç bulunamadı, sadece PDF içeriği ile devam ediliyor...")
+                final_prompt = f"""
+Sen Türkiye'de çalışan bir avukatsın.
+
+Aşağıdaki metni yalnızca hukuki dayanak olarak kullan.
+Kullanıcıya avukat gibi, yol gösterici ve pratik cevap ver.
+
+METİN:
+{session_pdf_context}
+
+SORU:
+{user_message}
+"""
+                try:
+                    if use_history:
+                        if session_id not in chat_sessions:
+                            chat_sessions[session_id] = gemini_model.start_chat(history=[])
+                        response = chat_sessions[session_id].send_message(final_prompt)
+                    else:
+                        response = gemini_model.generate_content(final_prompt)
+                    return response.text
+                except Exception as e:
+                    return f"Hata: {e}"
             return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı."
 
-        # 2. Prompt oluştur
-        system_prompt, user_prompt, source_details = create_smart_prompt(user_message, search_results)
+        # 2. Prompt oluştur (PDF içeriği varsa onu da ekle)
+        system_prompt, user_prompt, source_details = create_smart_prompt(
+            user_message,
+            search_results,
+            pdf_context=session_pdf_context
+        )
 
         # 3. Gemini'ye gönder
         try:

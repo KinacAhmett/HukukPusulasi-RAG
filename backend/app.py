@@ -43,11 +43,9 @@ def get_sessions():
         sessions_list = []
 
         for row in sessions_raw:
-            session_id, first_message, last_message_time = row
+            session_id, title, last_message_time = row
 
-            # Frontend'in beklediği 'title' formatını (ilk 30 karakter) oluşturalım
-            title = first_message[:30] + '...' if len(first_message) > 30 else first_message
-
+            # Başlık zaten veritabanından geliyor, direkt kullan
             sessions_list.append({
                 "id": session_id,
                 "title": title,
@@ -123,17 +121,42 @@ def chat():
         # Dosyayı request.files'dan alıyoruz
         pdf_file = request.files.get('file') # Eğer dosya yoksa bu 'None' olacak
 
-        print(f"DEBUG: Form verisi alındı: message='{user_message}', session_id='{session_id}', is_temporary='{is_temporary}'")
+        print(f"DEBUG: Form verisi alındı: message='{user_message}', session_id='{session_id}', is_temporary_str='{is_temporary_str}', is_temporary={is_temporary} (type: {type(is_temporary)})")
         if pdf_file:
             print(f"DEBUG: Dosya alındı: {pdf_file.filename}")
 
         # --- Session ve mesaj kontrolü (aynı) ---
-        if not session_id or session_id == 'null': # Frontend 'null' stringi yollayabilir
+        is_new_session = False
+        if not session_id or session_id == 'null' or session_id == '': # Frontend 'null' stringi yollayabilir
             session_id = str(uuid.uuid4())
+            is_new_session = True
             print(f"✅ [app.py] Yeni oturum başlatıldı: {session_id}")
+        else:
+            # Session ID varsa, bu session için daha önce mesaj var mı kontrol et
+            has_messages = database.session_has_messages(session_id)
+            if not has_messages:
+                is_new_session = True
+                print(f"✅ [app.py] Session ID var ama mesaj yok, yeni sohbet olarak işaretlendi: {session_id}")
 
         if not user_message and not pdf_file:
              return jsonify({"error": "Mesaj veya dosya içeriği boş olamaz"}), 400
+
+        # --- Başlık oluşturma (mesaj loglanmadan ÖNCE) ---
+        # Yeni sohbet başladıysa ve kullanıcı mesajı varsa başlık oluştur
+        if not is_temporary and is_new_session and user_message:
+            print(f"*** BAŞLIK OLUŞTURULUYOR - is_temporary={is_temporary}, is_new_session={is_new_session} ***")
+            try:
+                title = model_service.generate_chat_title(user_message)
+                print(f"*** OLUŞTURULAN BAŞLIK: {title} ***")
+                database.save_session_title(session_id, title)
+                print(f"*** BAŞLIK KAYDEDİLDİ: {title} ***")
+            except Exception as e:
+                print(f"*** BAŞLIK HATASI: {e} ***")
+                import traceback
+                traceback.print_exc()
+                default_title = user_message[:30] + '...' if len(user_message) > 30 else user_message
+                database.save_session_title(session_id, default_title)
+                print(f"*** VARSAYILAN BAŞLIK KAYDEDİLDİ: {default_title} ***")
 
         # --- Loglama (aynı) ---
         log_text = user_message or f"[Dosya Yüklendi: {pdf_file.filename}]"
