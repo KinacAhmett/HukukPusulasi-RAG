@@ -19,6 +19,8 @@ gemini_model = None
 vector_store = None
 semantic_processor = None
 distance_analyzer = None
+# Session bazlı chat session'ları tutmak için dictionary
+chat_sessions = {}  # {session_id: ChatSession}
 
 # ============================================================================
 # YAPILANDIRMA
@@ -512,12 +514,16 @@ Not: Cevabın sonunda kaynaklar otomatik olarak listelenecektir.
 # ============================================================================
 # MAIN RESPONSE FUNCTION
 # ============================================================================
-def get_model_response(user_message, pdf_file_stream=None):
+def get_model_response(user_message, pdf_file_stream=None, session_id=None):
     """
     Ana RAG fonksiyonu - ChromaDB'den arama yapar ve Gemini ile yanıt üretir
+    Conversation history tutar (session_id ile)
     """
     if gemini_model is None:
         return "Model düzgün yüklenemedi. Lütfen sunucu loglarına bakın."
+
+    # Session ID yoksa veya geçersizse, conversation history olmadan çalış
+    use_history = session_id and session_id != 'null'
 
     # PDF ile çalışma (eski sistem)
     if pdf_file_stream:
@@ -542,7 +548,14 @@ SORU:
 """
 
         try:
-            response = gemini_model.generate_content(final_prompt)
+            if use_history:
+                # Chat session kullan (history ile)
+                if session_id not in chat_sessions:
+                    chat_sessions[session_id] = gemini_model.start_chat(history=[])
+                response = chat_sessions[session_id].send_message(final_prompt)
+            else:
+                # Normal generate (history olmadan)
+                response = gemini_model.generate_content(final_prompt)
             return response.text
         except Exception as e:
             return f"Hata: {e}"
@@ -560,8 +573,22 @@ SORU:
 
         # 3. Gemini'ye gönder
         try:
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            response = gemini_model.generate_content(full_prompt)
+            if use_history:
+                # Chat session kullan (history ile)
+                # System instruction'ı chat session başlatırken veya her mesajda belirtebiliriz
+                # Her mesajda farklı RAG sonuçları olduğu için, full prompt'u birleştirip gönderiyoruz
+                full_prompt = f"{system_prompt}\n\n{user_prompt}"
+
+                # Session yoksa oluştur
+                if session_id not in chat_sessions:
+                    chat_sessions[session_id] = gemini_model.start_chat(history=[])
+
+                # Mesajı chat session'a gönder (history otomatik tutulur)
+                response = chat_sessions[session_id].send_message(full_prompt)
+            else:
+                # History olmadan normal generate
+                full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                response = gemini_model.generate_content(full_prompt)
 
             # Kaynakları ekle
             response_text = response.text
@@ -574,7 +601,14 @@ SORU:
 
     # ChromaDB yoksa normal yanıt
     try:
-        response = gemini_model.generate_content(user_message)
+        if use_history:
+            # Chat session kullan (history ile)
+            if session_id not in chat_sessions:
+                chat_sessions[session_id] = gemini_model.start_chat(history=[])
+            response = chat_sessions[session_id].send_message(user_message)
+        else:
+            # History olmadan normal generate
+            response = gemini_model.generate_content(user_message)
         return response.text
     except Exception as e:
         return f"Hata: {e}"

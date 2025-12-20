@@ -141,8 +141,9 @@ def chat():
             database.log_message(session_id, "user", log_text)
 
         # --- 3. MODELİ ÇAĞIR (Yeni parametreyle) ---
-        # Modeli çağırırken artık 'pdf_file' stream'ini de yolluyoruz
-        bot_response = model_service.get_model_response(user_message, pdf_file_stream=pdf_file)
+        # Modeli çağırırken artık 'pdf_file' stream'ini ve 'session_id'yi de yolluyoruz
+        # session_id conversation history tutmak için kullanılır
+        bot_response = model_service.get_model_response(user_message, pdf_file_stream=pdf_file, session_id=session_id)
 
         # --- Loglama (aynı) ---
         if not is_temporary:
