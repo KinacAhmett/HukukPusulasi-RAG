@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: hukuk-pusulasi-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Veritabanı ve ChromaDB verilerini kalıcı hale getir
+      - ../backend/chat.db:/app/chat.db
+      - ../backend/legal_chroma_db:/app/legal_chroma_db
+      # .env dosyasını mount et (eğer varsa)
+      - ../backend/.env:/app/.env
+    restart: unless-stopped
+    networks:
+      - hukuk-pusulasi-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hukuk-pusulasi-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      # Docker container'lar arasında backend servis adını kullan
+      # Tarayıcıdan erişim için localhost kullanılacak (frontend kodu bunu handle edecek)
+      - REACT_APP_API_URL=http://localhost:5000
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - hukuk-pusulasi-network
+
+networks:
+  hukuk-pusulasi-network:
+    driver: bridge
+

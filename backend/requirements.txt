@@ -1,0 +1,11 @@
+Flask
+flask-cors
+python-dotenv
+google-generativeai
+PyPDF2
+chromadb
+sentence-transformers
+torch
+transformers
+numpy<2.0.0
+scikit-learn

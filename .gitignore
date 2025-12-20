@@ -6,12 +6,12 @@ Icon?
 
 # Node / React
 node_modules/
-hukuk-pusulasi-frontend/node_modules/
-hukuk-pusulasi-frontend/build/
-hukuk-pusulasi-frontend/.env.local
-hukuk-pusulasi-frontend/.env.development.local
-hukuk-pusulasi-frontend/.env.test.local
-hukuk-pusulasi-frontend/.env.production.local
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -22,6 +22,9 @@ pnpm-debug.log*
 .env
 *.env
 .env.*.local
+# Exception: .env.example files should be committed
+!.env.example
+!**/.env.example
 
 # Python / Notebooks
 __pycache__/
@@ -36,18 +39,25 @@ env/
 **/.ipynb_checkpoints/
 *.ipynb~*
 
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+backend/chat.db
+# backend/legal_chroma_db/
+# **/legal_chroma_db/
+
 # Large folders
 outputs/
 outputs-v1/
 outputs-ben/
 outputs-ben2/
 versions/
-hukukPusulasi-veri/
-yararli-olabilir/
+hukukPusulasi_veri/
 hukukPusulasi_veri_text/
 rag_files/
 code/indirme_ilerleme.json
-merged_model_hukuk/
+fineTuning/indirme_ilerleme.json
 
 # Editors / IDEs
 .vscode/
