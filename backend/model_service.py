@@ -342,7 +342,70 @@ class SmartVectorStore:
 # ============================================================================
 def format_source(doc: str, meta: Dict) -> str:
     """Kaynak bilgisini formatlar"""
+    import re
+
     file_name = meta.get('file_name', 'Kaynak')
+    doc_type = meta.get('doc_type', '')
+
+    # Mahkeme kararları için esas no ve karar no'yu parse et
+    if doc_type == 'court_decision':
+        try:
+            # Chunk içeriğinden esas no ve karar no'yu çıkar
+            # Format: "ESAS NO : 2024/693 KARAR NO : 2025/160" veya "ESAS NO : 2024/752 Esas KARAR NO : 2025/363"
+            # İlk 2000 karakter içinde ara (chunk başında olmalı)
+            doc_start = doc[:2000] if len(doc) > 2000 else doc
+
+            esas_match = re.search(r'ESAS\s+NO\s*[:：]\s*(\d{4}/\d+)', doc_start, re.IGNORECASE)
+            karar_match = re.search(r'KARAR\s+NO\s*[:：]\s*(\d{4}/\d+)', doc_start, re.IGNORECASE)
+
+            # Mahkeme adını çıkar - daha kapsamlı regex
+            mahkeme_adi = None
+
+            # Önce T.C. ile başlayanları kontrol et
+            mahkeme_match = re.search(r'T\.C\.\s*([^\n]+?)(?:\n|ESAS|KARAR|DAVA)', doc_start, re.IGNORECASE | re.DOTALL)
+            if mahkeme_match:
+                mahkeme_adi = mahkeme_match.group(1).strip()
+            else:
+                # T.C. olmadan, satır başında mahkeme adı
+                mahkeme_match = re.search(r'^([^\n]*?(?:ASLİYE|HUKUK|TİCARET|TÜKETİCİ|İŞ|AĞIR|CEZA)[^\n]*?MAHKEMESİ[^\n]*)', doc_start, re.IGNORECASE | re.MULTILINE)
+                if mahkeme_match:
+                    mahkeme_adi = mahkeme_match.group(1).strip()
+                else:
+                    # Sadece mahkeme adı (numarasız)
+                    mahkeme_match = re.search(r'^([^\n]+(?:Hukuk Dairesi|Mahkemesi|MAHKEMESİ))', doc_start, re.IGNORECASE | re.MULTILINE)
+                    if mahkeme_match:
+                        mahkeme_adi = mahkeme_match.group(1).strip()
+
+            # İçtihat Metni kontrolü
+            ictihat_match = re.search(r'İçtihat\s+Metni', doc, re.IGNORECASE)
+            ictihat_text = ' "İçtihat Metni"' if ictihat_match else ''
+
+            esas_no = esas_match.group(1) if esas_match else None
+            karar_no = karar_match.group(1) if karar_match else None
+
+            # Format: "Mahkeme Adı 2024/752 E., 2025/363 K."
+            parts = []
+
+            if mahkeme_adi:
+                # Mahkeme adını temizle (gereksiz boşlukları kaldır)
+                mahkeme_adi = re.sub(r'\s+', ' ', mahkeme_adi).strip()
+                parts.append(mahkeme_adi)
+
+            if esas_no and karar_no:
+                parts.append(f"{esas_no} E., {karar_no} K.")
+            elif esas_no:
+                parts.append(f"{esas_no} E.")
+            elif karar_no:
+                parts.append(f"{karar_no} K.")
+
+            if parts:
+                result = ' '.join(parts) + ictihat_text
+                return result
+        except Exception as e:
+            print(f"⚠️ format_source hatası (court_decision): {e}")
+
+        # Fallback durumunda None döndür (kaynak gösterilmeyecek)
+        return None
 
     if file_name.startswith('Regulation_'):
         clean_name = file_name.replace('Regulation_', '').replace('.pdf', '').replace('_', ' ')
@@ -428,9 +491,13 @@ def create_smart_prompt(query: str, search_results: Dict, pdf_context: Optional[
         search_results['metadatas']
     )):
         source_info = format_source(doc, meta)
+        # Fallback durumunda None dönen kaynakları atla
+        if source_info is None:
+            continue
         doc_text = doc.strip()[:600] + "..." if len(doc.strip()) > 600 else doc.strip()
         contexts.append(f"[Kaynak {i+1}]:\n{doc_text}")
-        source_details.append(f"[{i+1}] {source_info}")
+        # Sadece kaynak adını sakla (numara olmadan)
+        source_details.append(source_info)
 
     context_block = "\n\n".join(contexts)
 
@@ -443,29 +510,40 @@ def create_smart_prompt(query: str, search_results: Dict, pdf_context: Optional[
     system_prompt = f"""
 Sen Türkiye'de aktif olarak çalışan bir avukatsın.
 
+UZMANLIK ALANIN:
+SADECE TÜKETİCİ HUKUKU konularında danışmanlık veriyorsun.
+Tüketicinin Korunması Hakkında Kanun, mesafeli satış, ayıplı mal/hizmet, garanti, cayma hakkı, tüketici kredileri, konut finansmanı, taksitle satış, doğrudan satış, abonelik sözleşmeleri, paket tur, devre tatil, ön ödemeli konut, tüketici hakem heyetleri, haksız şartlar, reklam ve haksız ticari uygulamalar gibi konularda uzmanlaşmışsın.
+
 ROLÜN:
-Kullanıcılara hukuki danışmanlık verir gibi,
+Kullanıcılara tüketici hukuku konularında hukuki danışmanlık verir gibi,
 uygulamaya dönük, pratik ve yol gösterici cevaplar verirsin.
+
+ÖNEMLİ KURAL - MUTLAKA UY:
+Eğer kullanıcının sorusu tüketici hukuku dışında bir konuyla ilgiliyse (ceza hukuku, aile hukuku, iş hukuku, gayrimenkul hukuku, idare hukuku, belediye kararları, miras hukuku, ticaret hukuku vb.),
+KESİNLİKLE cevap verme. Sadece şunu yaz: "Üzgünüm, bu konuda danışmanlık veremem. Sadece tüketici hukuku konularında (tüketici hakları, mesafeli satış, ayıplı mal, garanti, cayma hakkı, tüketici kredileri vb.) yardımcı olabilirim. Başka bir sorunuz varsa memnuniyetle yardımcı olurum."
+
+Tüketici hukuku dışı konulara asla detaylı cevap verme, sadece yukarıdaki reddetme mesajını yaz.
 
 KURALLAR:
 - Akademik veya tez dili kullanma
 - "verilen kaynaklara göre", "dokümanlar şunu söylüyor" gibi ifadeler kullanma
 - Kaynak numarası, belge adı veya PDF referansı belirtme
 - Bilgiyi içselleştirerek anlat
+- KISA VE ÖZ cevap ver - kullanıcı sorunun cevabına hızlıca ulaşmalı
+- Gereksiz detaylara girmeden direkt soruya odaklan
 
 CEVAP TARZI:
-- Net
+- Net ve öz
 - Resmi ama insani
 - Gereksiz empati yok, samimi giriş var
 - Avukat refleksiyle yönlendirici
 
-ZORUNLU CEVAP YAPISI:
-1. Kısa bir geçmiş olsun / durum özeti
-2. Kullanıcının hangi hakları olduğu
-3. Adım adım ne yapması gerektiği
-4. Alternatif yollar (dava, tahkim, başvuru)
-5. Pratik uyarılar (sık yapılan hatalar)
-6. Kaynakları belirtmek
+CEVAP YAPISI (KISA VE ÖZ):
+1. Durum özeti (sadece gerekirse "geçmiş olsun" - bilgi edinme sorularında gerekmez)
+2. Kullanıcının hakları (kısa ve net)
+3. Yapılması gerekenler (adım adım, öz)
+4. Alternatif yollar (varsa, kısa)
+5. Pratik öneriler (varsa, kısa)
 
 HUKUKİ SINIR:
 Somut olayda mutlaka bir avukata danışılması gerektiğini
@@ -500,29 +578,59 @@ SORU:
 
     user_prompt += """
 
-Cevabını aşağıdaki şablona uygun yaz:
+**ÇOK ÖNEMLİ - ÖNCE BUNU KONTROL ET:**
+Kullanıcının sorusu TÜKETİCİ HUKUKU ile ilgili mi?
 
-Geçmiş olsun.
+Tüketici hukuku konuları (sadece bunlar):
+- Tüketicinin Korunması Hakkında Kanun ve tüketici hakları
+- Mesafeli satış sözleşmeleri, online alışveriş
+- Ayıplı mal ve ayıplı hizmet
+- Garanti, garanti belgesi
+- Cayma hakkı (mesafeli satış, taksitle satış, tüketici kredileri)
+- Tüketici kredileri, konut finansmanı
+- Taksitle satış sözleşmeleri
+- Doğrudan satışlar, kapıdan satış
+- İş yeri dışında kurulan sözleşmeler
+- Abonelik sözleşmeleri
+- Paket tur sözleşmeleri
+- Devre tatil ve uzun süreli tatil hizmeti sözleşmeleri
+- Ön ödemeli konut satışları
+- Yenilenmiş ürünlerin satışı
+- Tüketici sözleşmelerindeki haksız şartlar
+- Tüketici hakem heyetleri
+- Reklam ve haksız ticari uygulamalar
+- Fiyat etiketi, satış sonrası hizmetler
+- Finansal hizmetlere ilişkin mesafeli sözleşmeler
+- Tüketici mahkemeleri ve tüketici davaları
 
-[Durumun kısa özeti]
+Tüketici hukuku DIŞI konular (BUNLARI REDDET):
+- Ceza hukuku, trafik cezaları, hakaret davaları
+- Aile hukuku, boşanma, velayet, nafaka
+- İş hukuku, işten çıkarma, fazla mesai
+- Gayrimenkul hukuku, tapu, kira
+- Miras hukuku, vasiyetname
+- İdare hukuku, belediye kararları, kamu görevlisi
+- Ticaret hukuku (işletme kuruluşu, ortaklık)
+- Sigorta hukuku (hayat sigortası, genel sigorta)
 
-**ÇOK ÖNEMLİ - KAYNAK REFERANSLARI:**
-Cevabında her hukuki bilgi, süre, hak veya yükümlülükten bahsettiğinde,
-hemen arkasına [1], [2], [3] gibi kaynak numarası koy.
-Bu numaralar yukarıdaki "HUKUKİ BAĞLAM" bölümündeki kaynak numaralarına karşılık gelir.
+EĞER SORU TÜKETİCİ HUKUKU DIŞINDA İSE:
+Sadece şunu yaz: "Üzgünüm, bu konuda danışmanlık veremem. Sadece tüketici hukuku konularında (Tüketicinin Korunması Hakkında Kanun, mesafeli satış, ayıplı mal/hizmet, garanti, cayma hakkı, tüketici kredileri, konut finansmanı, taksitle satış, doğrudan satış, abonelik sözleşmeleri, paket tur, devre tatil, ön ödemeli konut, tüketici hakem heyetleri, haksız şartlar, reklam ve haksız ticari uygulamalar vb.) yardımcı olabilirim. Başka bir sorunuz varsa memnuniyetle yardımcı olurum."
 
-Örnek:
-"Cayma hakkı 14 gün içinde kullanılabilir [1]. Bu süre içinde..."
-"Mesafeli sözleşmelerde iade ücretsizdir [2]."
+EĞER SORU TÜKETİCİ HUKUKU İLE İLGİLİ İSE:
+Cevabını KISA VE ÖZ yaz. Kullanıcı sorunun cevabına hızlıca ulaşmalı.
 
-Cevabını şu yapıya uygun yaz (her bölümde ilgili kaynakları [1], [2] formatında belirt):
-1. Haklarınız
-2. Yapılması gerekenler
-3. Süreç nasıl ilerler
-4. Alternatif yollar
-5. Pratik öneriler
+**ÖNEMLİ:**
+- Sadece gerçekten bir sorun/zarar durumu varsa "geçmiş olsun" de
+- Bilgi edinme sorularında "geçmiş olsun" deme
+- Cevabında [1], [2] gibi referans numaraları KULLANMA - kaynaklar cevabın sonunda otomatik olarak güzel bir formatta listelenecek
+- Cevabını doğrudan ve akıcı yaz, kaynak referansları olmadan
 
-Not: Cevabın sonunda kaynaklar otomatik olarak listelenecektir.
+Cevabını şu yapıya uygun yaz (KISA VE ÖZ):
+1. Durum özeti (gerekirse)
+2. Haklarınız
+3. Yapılması gerekenler
+4. Alternatif yollar (varsa)
+5. Pratik öneriler (varsa)
 """
 
     return system_prompt, user_prompt, source_details
@@ -626,10 +734,23 @@ def get_model_response(user_message, pdf_file_stream=None, session_id=None):
                     full_prompt = f"{system_prompt}\n\n{user_prompt}"
                     response = gemini_model.generate_content(full_prompt)
 
-                # Kaynakları ekle
+                # Kaynakları ekle (eğer zaten yazılmamışsa)
                 response_text = response.text
-                sources_text = "\n\n**KAYNAKLAR:**\n" + "\n".join(source_details)
-                return response_text + sources_text
+                # Eğer cevap reddetme mesajı içeriyorsa kaynak ekleme
+                rejection_keywords = ["bu konuda danışmanlık veremem", "sadece tüketici hukuku", "yardımcı olamam"]
+                is_rejection = any(keyword in response_text.lower() for keyword in rejection_keywords)
+
+                if is_rejection:
+                    return response_text
+
+                # Eğer cevapta zaten "KAYNAKLAR" veya "Kaynaklar" varsa tekrar ekleme
+                if "KAYNAKLAR" not in response_text.upper() and "Kaynaklar" not in response_text and source_details:
+                    # Kaynakları güzel bir formatta göster
+                    sources_text = "\n\n---\n\n📚 Kaynaklar\n\n"
+                    for source in source_details:
+                        sources_text += f"• {source}\n"
+                    return response_text + sources_text
+                return response_text
 
             except Exception as e:
                 print(f"⚠️ RAG ile PDF birleştirme hatası: {e}, sadece PDF ile devam ediliyor...")
@@ -699,7 +820,52 @@ SORU:
                     return response.text
                 except Exception as e:
                     return f"Hata: {e}"
-            return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı."
+
+            # RAG'de sonuç yoksa, tüketici hukuku dışı bir soru olabilir
+            print("⚠️ RAG'de sonuç bulunamadı - tüketici hukuku dışı soru olabilir")
+            rejection_prompt = f"""
+Sen Türkiye'de aktif olarak çalışan bir avukatsın ve SADECE TÜKETİCİ HUKUKU konularında uzmanlaşmışsın.
+
+Kullanıcının sorusu:
+{user_message}
+
+Bu soru tüketici hukuku dışında bir konuyla ilgili görünüyor. Kibarca ve nazikçe, sadece tüketici hukuku konularında (Tüketicinin Korunması Hakkında Kanun, mesafeli satış, ayıplı mal/hizmet, garanti, cayma hakkı, tüketici kredileri, konut finansmanı, taksitle satış, doğrudan satış, abonelik sözleşmeleri, paket tur, devre tatil, ön ödemeli konut, tüketici hakem heyetleri, haksız şartlar, reklam ve haksız ticari uygulamalar vb.) danışmanlık verebildiğini belirt.
+Kısa ve samimi bir şekilde yaz.
+"""
+            try:
+                if use_history:
+                    if session_id not in chat_sessions:
+                        chat_sessions[session_id] = gemini_model.start_chat(history=[])
+                    response = chat_sessions[session_id].send_message(rejection_prompt)
+                else:
+                    response = gemini_model.generate_content(rejection_prompt)
+                return response.text
+            except Exception as e:
+                return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı. Sadece tüketici hukuku konularında yardımcı olabilirim."
+
+        # Sonuçların kalitesini kontrol et - eğer tüm distance'lar çok yüksekse, tüketici hukuku dışı soru olabilir
+        distances = search_results.get('distances', [])
+        if distances and all(dist > 650.0 for dist in distances):
+            print("⚠️ Tüm sonuçların distance'ı çok yüksek - tüketici hukuku dışı soru olabilir")
+            rejection_prompt = f"""
+Sen Türkiye'de aktif olarak çalışan bir avukatsın ve SADECE TÜKETİCİ HUKUKU konularında uzmanlaşmışsın.
+
+Kullanıcının sorusu:
+{user_message}
+
+Bu soru tüketici hukuku dışında bir konuyla ilgili görünüyor. Kibarca ve nazikçe, sadece tüketici hukuku konularında (Tüketicinin Korunması Hakkında Kanun, mesafeli satış, ayıplı mal/hizmet, garanti, cayma hakkı, tüketici kredileri, konut finansmanı, taksitle satış, doğrudan satış, abonelik sözleşmeleri, paket tur, devre tatil, ön ödemeli konut, tüketici hakem heyetleri, haksız şartlar, reklam ve haksız ticari uygulamalar vb.) danışmanlık verebildiğini belirt.
+Kısa ve samimi bir şekilde yaz.
+"""
+            try:
+                if use_history:
+                    if session_id not in chat_sessions:
+                        chat_sessions[session_id] = gemini_model.start_chat(history=[])
+                    response = chat_sessions[session_id].send_message(rejection_prompt)
+                else:
+                    response = gemini_model.generate_content(rejection_prompt)
+                return response.text
+            except Exception as e:
+                return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı. Sadece tüketici hukuku konularında yardımcı olabilirim."
 
         # 2. Prompt oluştur (PDF içeriği varsa onu da ekle)
         system_prompt, user_prompt, source_details = create_smart_prompt(
@@ -727,11 +893,23 @@ SORU:
                 full_prompt = f"{system_prompt}\n\n{user_prompt}"
                 response = gemini_model.generate_content(full_prompt)
 
-            # Kaynakları ekle
+            # Kaynakları ekle (eğer zaten yazılmamışsa)
             response_text = response.text
-            sources_text = "\n\n**KAYNAKLAR:**\n" + "\n".join(source_details)
+            # Eğer cevap reddetme mesajı içeriyorsa kaynak ekleme
+            rejection_keywords = ["bu konuda danışmanlık veremem", "sadece tüketici hukuku", "yardımcı olamam"]
+            is_rejection = any(keyword in response_text.lower() for keyword in rejection_keywords)
 
-            return response_text + sources_text
+            if is_rejection:
+                return response_text
+
+            # Eğer cevapta zaten "KAYNAKLAR" veya "Kaynaklar" varsa tekrar ekleme
+            if "KAYNAKLAR" not in response_text.upper() and "Kaynaklar" not in response_text and source_details:
+                # Kaynakları güzel bir formatta göster
+                sources_text = "\n\n---\n\n📚 Kaynaklar\n\n"
+                for source in source_details:
+                    sources_text += f"• {source}\n"
+                return response_text + sources_text
+            return response_text
 
         except Exception as e:
             return f"Model cevabı üretirken hata: {e}"
