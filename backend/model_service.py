@@ -488,21 +488,23 @@ Geçmiş olsun.
 
 [Durumun kısa özeti]
 
-**ÇOK ÖNEMLİ:**
+**ÇOK ÖNEMLİ - KAYNAK REFERANSLARI:**
 Cevabında her hukuki bilgi, süre, hak veya yükümlülükten bahsettiğinde,
 hemen arkasına [1], [2], [3] gibi kaynak numarası koy.
+Bu numaralar yukarıdaki "HUKUKİ BAĞLAM" bölümündeki kaynak numaralarına karşılık gelir.
 
 Örnek:
 "Cayma hakkı 14 gün içinde kullanılabilir [1]. Bu süre içinde..."
 "Mesafeli sözleşmelerde iade ücretsizdir [2]."
 
-Cevabını şablona uygun yaz , kaynak kullandığın bir kısımda [kaynaklı] yaz:
-1. Haklarınız [kaynaklı]
-2. Yapılması gerekenler [kaynaklı]
-3. Süreç nasıl ilerler [kaynaklı]
-4. Alternatif yollar [kaynaklı]
-5. Pratik öneriler [kaynaklı]
-6. Kaynakları belirtmek [kaynaklı]
+Cevabını şu yapıya uygun yaz (her bölümde ilgili kaynakları [1], [2] formatında belirt):
+1. Haklarınız
+2. Yapılması gerekenler
+3. Süreç nasıl ilerler
+4. Alternatif yollar
+5. Pratik öneriler
+
+Not: Cevabın sonunda kaynaklar otomatik olarak listelenecektir.
 """
 
     return system_prompt, user_prompt, source_details
@@ -520,8 +522,13 @@ def get_model_response(user_message, pdf_file_stream=None):
     # PDF ile çalışma (eski sistem)
     if pdf_file_stream:
         pdf_context = _extract_text_from_pdf(pdf_file_stream)
-        if pdf_context:
-            final_prompt = f"""
+        if pdf_context is None:
+            return "Üzgünüm, yüklediğiniz PDF dosyasından metin çıkarılamadı. Lütfen dosyanın bozuk olmadığından veya şifre korumalı olmadığından emin olun ve tekrar deneyin."
+
+        if not pdf_context.strip():
+            return "Üzgünüm, yüklediğiniz PDF dosyasından metin çıkarılamadı. Dosya görüntü tabanlı (taranmış) bir PDF olabilir. Lütfen metin içeren bir PDF dosyası yükleyin."
+
+        final_prompt = f"""
 Sen Türkiye'de çalışan bir avukatsın.
 
 Aşağıdaki metni yalnızca hukuki dayanak olarak kullan.
@@ -534,11 +541,11 @@ SORU:
 {user_message}
 """
 
-            try:
-                response = gemini_model.generate_content(final_prompt)
-                return response.text
-            except Exception as e:
-                return f"Hata: {e}"
+        try:
+            response = gemini_model.generate_content(final_prompt)
+            return response.text
+        except Exception as e:
+            return f"Hata: {e}"
 
     # ChromaDB RAG ile çalışma (YENİ SİSTEM)
     if vector_store and vector_store.collection:
