@@ -43,7 +43,7 @@ def init_db():
         conn.commit() # Değişiklikleri kaydet
         conn.close()  # Bağlantıyı kapat
 
-        print(f"✅ [database] Veritabanı '{DB_NAME}' başarıyla başlatıldı.")
+        print(f"✅ Veritabanı hazır")
 
     except Exception as e:
         print(f"❌ [database] HATA: Veritabanı başlatılırken sorun oluştu: {e}")
@@ -69,7 +69,7 @@ def log_message(session_id, sender, message):
         conn.commit()
         conn.close()
 
-        print(f"✅ [database] Mesaj loglandı: {sender} (Oturum: ...{session_id[-6:]})")
+        # Mesaj veritabanına kaydedildi (sessizce)
 
     except Exception as e:
         print(f"❌ [database] HATA: Mesaj loglanırken sorun oluştu: {e}")
@@ -104,11 +104,6 @@ def get_all_sessions():
         sessions = cursor.fetchall()
         conn.close()
 
-        # Debug: İlk birkaç session'ı logla
-        if sessions:
-            print(f"🔍 [database] DEBUG: get_all_sessions - İlk 3 session:")
-            for i, (sid, title, last_msg) in enumerate(sessions[:3]):
-                print(f"  [{i+1}] session_id: ...{sid[-6:]}, title: {title[:40]}..., last_msg: {last_msg}")
 
         # [(session_id_1, başlık_1, son_tarih_1), (session_id_2, başlık_2, son_tarih_2), ...]
         return sessions

@@ -244,7 +244,8 @@ class SmartVectorStore:
                 name=collection_name,
                 embedding_function=self.embedding_function
             )
-            print(f"✅ ChromaDB: {self.collection.count()} doküman yüklendi")
+            doc_count = self.collection.count()
+            print(f"✅ RAG Veritabanı: {doc_count} hukuki doküman yüklendi")
         except Exception as e:
             print(f"❌ ChromaDB collection bulunamadı: {e}")
             self.collection = None
@@ -258,14 +259,15 @@ class SmartVectorStore:
 
         analysis = self.semantic_processor.enrich_query(query)
 
-        print(f"\n🔍 Sorgu: '{query}'")
-        print(f"📊 Sözleşme tipi: {analysis['contract_type'] or 'Belirsiz'}")
+        print(f"\n{'='*60}")
+        print(f"🔍 Kullanıcı Sorusu: {query}")
+        print(f"{'='*60}")
 
         all_results = []
 
         # Filtered search
         if analysis['metadata_filters']:
-            print("1️⃣ Filtered search...")
+            print("📚 Filtrelenmiş arama yapılıyor...")
             try:
                 filtered = self.collection.query(
                     query_texts=[analysis['enriched']],
@@ -285,12 +287,12 @@ class SmartVectorStore:
                             'metadata': meta,
                             'distance': dist
                         })
-                    print(f"   ✅ {len(filtered['ids'][0])} sonuç")
+                    print(f"   ✅ {len(filtered['ids'][0])} ilgili doküman bulundu")
             except Exception as e:
                 print(f"   ⚠️ Filtre hatası: {e}")
 
         # Semantic search
-        print("2️⃣ Semantic search...")
+        print("🔎 Semantik arama yapılıyor...")
         semantic = self.collection.query(
             query_texts=[analysis['enriched']],
             n_results=n_results * 2,
@@ -326,7 +328,8 @@ class SmartVectorStore:
             quality_level='acceptable'
         )
 
-        print(f"✅ Toplam {final_results['n_results']} kaliteli sonuç\n")
+        print(f"✅ RAG: {final_results['n_results']} ilgili doküman bulundu")
+        print(f"🤖 AI modeli cevap üretiyor...\n")
 
         return {
             'query': query,
@@ -439,7 +442,7 @@ def initialize_model():
 
         genai.configure(api_key=api_key)
         gemini_model = genai.GenerativeModel('gemini-2.5-flash')
-        print("✅ Google Gemini modeli yüklendi.")
+        print("✅ AI Modeli (Gemini) hazır")
 
         # 2. ChromaDB Vector Store'u yükle
         vector_store = SmartVectorStore(
@@ -470,7 +473,7 @@ def _extract_text_from_pdf(pdf_file_stream):
         for page in pdf_reader.pages:
             text += page.extract_text() or ""
 
-        print(f"✅ PDF'ten {len(text)} karakter metin çıkarıldı.")
+        # PDF metni çıkarıldı (log yok, üstte zaten var)
         return text
     except Exception as e:
         print(f"❌ PDF okunurken hata: {e}")
@@ -519,10 +522,18 @@ Kullanıcılara tüketici hukuku konularında hukuki danışmanlık verir gibi,
 uygulamaya dönük, pratik ve yol gösterici cevaplar verirsin.
 
 ÖNEMLİ KURAL - MUTLAKA UY:
-Eğer kullanıcının sorusu tüketici hukuku dışında bir konuyla ilgiliyse (ceza hukuku, aile hukuku, iş hukuku, gayrimenkul hukuku, idare hukuku, belediye kararları, miras hukuku, ticaret hukuku vb.),
-KESİNLİKLE cevap verme. Sadece şunu yaz: "Üzgünüm, bu konuda danışmanlık veremem. Sadece tüketici hukuku konularında (tüketici hakları, mesafeli satış, ayıplı mal, garanti, cayma hakkı, tüketici kredileri vb.) yardımcı olabilirim. Başka bir sorunuz varsa memnuniyetle yardımcı olurum."
+Sadece AŞAĞIDAKİ KONULAR DIŞINDAKİ soruları reddet:
+- Ceza hukuku (trafik cezaları, hakaret davaları, suçlar)
+- Aile hukuku (boşanma, velayet, nafaka, evlilik)
+- İş hukuku (işten çıkarma, fazla mesai, iş sözleşmeleri)
+- Gayrimenkul hukuku (tapu, kira, satış - tüketici konut finansmanı hariç)
+- Miras hukuku (vasiyetname, miras paylaşımı)
+- İdare hukuku (belediye kararları, kamu görevlisi, idari işlemler)
+- Ticaret hukuku (işletme kuruluşu, ortaklık, şirket hukuku)
 
-Tüketici hukuku dışı konulara asla detaylı cevap verme, sadece yukarıdaki reddetme mesajını yaz.
+Eğer soru yukarıdaki konulardan BİRİ İSE, sadece şunu yaz: "Üzgünüm, bu konuda danışmanlık veremem. Sadece tüketici hukuku konularında (tüketici hakları, mesafeli satış, ayıplı mal, garanti, cayma hakkı, tüketici kredileri vb.) yardımcı olabilirim. Başka bir sorunuz varsa memnuniyetle yardımcı olurum."
+
+ÖNEMLİ: Eğer soru tüketici hukuku ile ilgili olabilir (araç satın alma, sigorta, garanti, tazminat, değer kaybı vb. tüketici açısından), CEVAP VER. Sadece yukarıdaki açıkça belirtilen konuları reddet.
 
 KURALLAR:
 - Akademik veya tez dili kullanma
@@ -579,44 +590,21 @@ SORU:
     user_prompt += """
 
 **ÇOK ÖNEMLİ - ÖNCE BUNU KONTROL ET:**
-Kullanıcının sorusu TÜKETİCİ HUKUKU ile ilgili mi?
+Sadece AŞAĞIDAKİ KONULAR İSE soruyu reddet, diğer tüm sorulara cevap ver:
 
-Tüketici hukuku konuları (sadece bunlar):
-- Tüketicinin Korunması Hakkında Kanun ve tüketici hakları
-- Mesafeli satış sözleşmeleri, online alışveriş
-- Ayıplı mal ve ayıplı hizmet
-- Garanti, garanti belgesi
-- Cayma hakkı (mesafeli satış, taksitle satış, tüketici kredileri)
-- Tüketici kredileri, konut finansmanı
-- Taksitle satış sözleşmeleri
-- Doğrudan satışlar, kapıdan satış
-- İş yeri dışında kurulan sözleşmeler
-- Abonelik sözleşmeleri
-- Paket tur sözleşmeleri
-- Devre tatil ve uzun süreli tatil hizmeti sözleşmeleri
-- Ön ödemeli konut satışları
-- Yenilenmiş ürünlerin satışı
-- Tüketici sözleşmelerindeki haksız şartlar
-- Tüketici hakem heyetleri
-- Reklam ve haksız ticari uygulamalar
-- Fiyat etiketi, satış sonrası hizmetler
-- Finansal hizmetlere ilişkin mesafeli sözleşmeler
-- Tüketici mahkemeleri ve tüketici davaları
+REDDETMEN GEREKEN KONULAR (SADECE BUNLAR):
+- Ceza hukuku (trafik cezaları, hakaret davaları, suçlar)
+- Aile hukuku (boşanma, velayet, nafaka, evlilik)
+- İş hukuku (işten çıkarma, fazla mesai, iş sözleşmeleri)
+- Gayrimenkul hukuku (tapu, kira, satış - tüketici konut finansmanı hariç)
+- Miras hukuku (vasiyetname, miras paylaşımı)
+- İdare hukuku (belediye kararları, kamu görevlisi, idari işlemler)
+- Ticaret hukuku (işletme kuruluşu, ortaklık, şirket hukuku)
 
-Tüketici hukuku DIŞI konular (BUNLARI REDDET):
-- Ceza hukuku, trafik cezaları, hakaret davaları
-- Aile hukuku, boşanma, velayet, nafaka
-- İş hukuku, işten çıkarma, fazla mesai
-- Gayrimenkul hukuku, tapu, kira
-- Miras hukuku, vasiyetname
-- İdare hukuku, belediye kararları, kamu görevlisi
-- Ticaret hukuku (işletme kuruluşu, ortaklık)
-- Sigorta hukuku (hayat sigortası, genel sigorta)
-
-EĞER SORU TÜKETİCİ HUKUKU DIŞINDA İSE:
+EĞER SORU YUKARIDAKİ KONULARDAN BİRİ İSE:
 Sadece şunu yaz: "Üzgünüm, bu konuda danışmanlık veremem. Sadece tüketici hukuku konularında (Tüketicinin Korunması Hakkında Kanun, mesafeli satış, ayıplı mal/hizmet, garanti, cayma hakkı, tüketici kredileri, konut finansmanı, taksitle satış, doğrudan satış, abonelik sözleşmeleri, paket tur, devre tatil, ön ödemeli konut, tüketici hakem heyetleri, haksız şartlar, reklam ve haksız ticari uygulamalar vb.) yardımcı olabilirim. Başka bir sorunuz varsa memnuniyetle yardımcı olurum."
 
-EĞER SORU TÜKETİCİ HUKUKU İLE İLGİLİ İSE:
+EĞER SORU YUKARIDAKİ KONULAR DIŞINDA İSE (araç kazası, tazminat, değer kaybı, sigorta, garanti, ayıplı mal vb. dahil):
 Cevabını KISA VE ÖZ yaz. Kullanıcı sorunun cevabına hızlıca ulaşmalı.
 
 **ÖNEMLİ:**
@@ -674,11 +662,10 @@ Sadece başlığı yaz, başka bir şey yazma:"""
             words = title.split()
             title = ' '.join(words[:6])
 
-        print(f"✅ Başlık oluşturuldu: {title}")
         return title
 
     except Exception as e:
-        print(f"⚠️ Başlık oluşturulurken hata: {e}, varsayılan başlık kullanılıyor")
+        # Sessizce varsayılan başlık kullan
         # Hata durumunda basit başlık
         return user_message[:30] + '...' if len(user_message) > 30 else user_message
 
@@ -708,7 +695,7 @@ def get_model_response(user_message, pdf_file_stream=None, session_id=None):
         # PDF içeriğini session'da sakla (sonraki mesajlarda kullanmak için)
         if session_id and session_id != 'null':
             pdf_contexts[session_id] = pdf_context
-            print(f"✅ PDF içeriği session {session_id} için kaydedildi ({len(pdf_context)} karakter)")
+            print(f"✅ PDF analiz edildi: {len(pdf_context)} karakter metin çıkarıldı")
 
         # PDF yüklendiğinde de RAG kullan (hem PDF hem RAG bilgileri)
         if vector_store and vector_store.collection and user_message:
@@ -789,7 +776,7 @@ SORU:
         session_pdf_context = None
         if session_id and session_id != 'null' and session_id in pdf_contexts:
             session_pdf_context = pdf_contexts[session_id]
-            print(f"✅ Session {session_id} için kaydedilmiş PDF içeriği kullanılıyor")
+            print(f"📄 Daha önce yüklenen PDF içeriği kullanılıyor")
 
         # 1. Semantic search yap
         search_results = vector_store.smart_search(query=user_message, n_results=5)
@@ -797,7 +784,7 @@ SORU:
         if search_results['n_results'] == 0:
             # Eğer PDF içeriği varsa sadece PDF ile devam et
             if session_pdf_context:
-                print("⚠️ RAG'de sonuç bulunamadı, sadece PDF içeriği ile devam ediliyor...")
+                print("⚠️ RAG'de ilgili doküman bulunamadı, sadece PDF içeriği kullanılıyor...")
                 final_prompt = f"""
 Sen Türkiye'de çalışan bir avukatsın.
 
@@ -822,8 +809,16 @@ SORU:
                     return f"Hata: {e}"
 
             # RAG'de sonuç yoksa, tüketici hukuku dışı bir soru olabilir
-            print("⚠️ RAG'de sonuç bulunamadı - tüketici hukuku dışı soru olabilir")
-            rejection_prompt = f"""
+            # Ancak sadece gerçekten alakasız konuları reddet (belediye kararları, idare hukuku vb.)
+            print("⚠️ RAG'de ilgili doküman bulunamadı")
+
+            # Belediye, idare hukuku gibi açıkça tüketici hukuku dışı konuları kontrol et
+            out_of_scope_keywords = ['belediye', 'idare', 'kamu görevlisi', 'boşanma', 'velayet', 'nafaka', 'miras', 'vasiyetname', 'işten çıkarma', 'fazla mesai']
+            is_out_of_scope = any(keyword in user_message.lower() for keyword in out_of_scope_keywords)
+
+            if is_out_of_scope:
+                print("🚫 Soru reddediliyor (açıkça tüketici hukuku dışı konu)...")
+                rejection_prompt = f"""
 Sen Türkiye'de aktif olarak çalışan bir avukatsın ve SADECE TÜKETİCİ HUKUKU konularında uzmanlaşmışsın.
 
 Kullanıcının sorusu:
@@ -832,21 +827,35 @@ Kullanıcının sorusu:
 Bu soru tüketici hukuku dışında bir konuyla ilgili görünüyor. Kibarca ve nazikçe, sadece tüketici hukuku konularında (Tüketicinin Korunması Hakkında Kanun, mesafeli satış, ayıplı mal/hizmet, garanti, cayma hakkı, tüketici kredileri, konut finansmanı, taksitle satış, doğrudan satış, abonelik sözleşmeleri, paket tur, devre tatil, ön ödemeli konut, tüketici hakem heyetleri, haksız şartlar, reklam ve haksız ticari uygulamalar vb.) danışmanlık verebildiğini belirt.
 Kısa ve samimi bir şekilde yaz.
 """
-            try:
-                if use_history:
-                    if session_id not in chat_sessions:
-                        chat_sessions[session_id] = gemini_model.start_chat(history=[])
-                    response = chat_sessions[session_id].send_message(rejection_prompt)
-                else:
-                    response = gemini_model.generate_content(rejection_prompt)
-                return response.text
-            except Exception as e:
-                return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı. Sadece tüketici hukuku konularında yardımcı olabilirim."
+            else:
+                # RAG'de sonuç yok ama soru tüketici hukuku ile ilgili olabilir, normal prompt ile devam et
+                print("ℹ️ RAG'de sonuç yok ama soru tüketici hukuku ile ilgili olabilir, genel bilgi ile cevap veriliyor...")
+                rejection_prompt = None
+
+            if rejection_prompt:
+                try:
+                    if use_history:
+                        if session_id not in chat_sessions:
+                            chat_sessions[session_id] = gemini_model.start_chat(history=[])
+                        response = chat_sessions[session_id].send_message(rejection_prompt)
+                    else:
+                        response = gemini_model.generate_content(rejection_prompt)
+                    return response.text
+                except Exception as e:
+                    return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı. Sadece tüketici hukuku konularında yardımcı olabilirim."
+            # rejection_prompt None ise, normal akışa devam et (aşağıdaki kod devam edecek)
 
         # Sonuçların kalitesini kontrol et - eğer tüm distance'lar çok yüksekse, tüketici hukuku dışı soru olabilir
+        # NOT: Distance threshold'u gevşettik - sadece gerçekten alakasız soruları reddet
+        # Ayrıca sadece açıkça tüketici hukuku dışı konuları reddet
         distances = search_results.get('distances', [])
-        if distances and all(dist > 650.0 for dist in distances):
-            print("⚠️ Tüm sonuçların distance'ı çok yüksek - tüketici hukuku dışı soru olabilir")
+        out_of_scope_keywords = ['belediye', 'idare', 'kamu görevlisi', 'boşanma', 'velayet', 'nafaka', 'miras', 'vasiyetname', 'işten çıkarma', 'fazla mesai']
+        is_out_of_scope = any(keyword in user_message.lower() for keyword in out_of_scope_keywords)
+
+        if distances and all(dist > 750.0 for dist in distances) and search_results['n_results'] > 0 and is_out_of_scope:
+            # Sadece gerçekten çok alakasız sonuçlar varsa VE açıkça tüketici hukuku dışı konu ise reddet
+            print("⚠️ Bulunan dokümanlar soruyla çok alakasız görünüyor ve soru açıkça tüketici hukuku dışı")
+            print("🚫 Soru reddediliyor...")
             rejection_prompt = f"""
 Sen Türkiye'de aktif olarak çalışan bir avukatsın ve SADECE TÜKETİCİ HUKUKU konularında uzmanlaşmışsın.
 
