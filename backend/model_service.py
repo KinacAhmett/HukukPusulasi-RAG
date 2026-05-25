@@ -2,6 +2,7 @@
 model_service.py - Gemini + ChromaDB RAG Entegrasyonu
 Bu dosya modelle ilgili tüm işlemleri yönetir.
 """
+import requests
 
 import os
 import google.generativeai as genai
@@ -441,7 +442,7 @@ def initialize_model():
             raise ValueError("GOOGLE_API_KEY bulunamadı. Lütfen .env dosyasını kontrol edin.")
 
         genai.configure(api_key=api_key)
-        gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+        gemini_model = genai.GenerativeModel('gemini-3.1-flash-lite')
         print("✅ AI Modeli (Gemini) hazır")
 
         # 2. ChromaDB Vector Store'u yükle
@@ -672,6 +673,244 @@ Sadece başlığı yaz, başka bir şey yazma:"""
 # ============================================================================
 # MAIN RESPONSE FUNCTION
 # ============================================================================
+
+
+# Llama 3 için basit oturum geçmişi (history) yönetimi
+llama_sessions = {}
+
+def call_llama(prompt, session_id=None, use_history=False):
+    """Gemini'nin start_chat mantığını yerel deepseek için simüle eder"""
+    url = "http://localhost:11434/api/generate"
+    
+    # Ollama'da indirdiğiniz tag neyse onu yazın. (örn: 'llama3' veya 'llama3.1')
+    OLLAMA_MODEL_NAME = "gemma3:4b" 
+    
+    if use_history and session_id:
+        if session_id not in llama_sessions:
+            llama_sessions[session_id] = ""
+        # Geçmişi bağlama ekle
+        context_prompt = llama_sessions[session_id] + f"\nKullanıcı: {prompt}\nAvukat:"
+        payload = {"model": OLLAMA_MODEL_NAME, "prompt": context_prompt, "stream": False}
+    else:
+        payload = {"model": OLLAMA_MODEL_NAME, "prompt": prompt, "stream": False}
+        
+    r = requests.post(url, json=payload, timeout=120)
+    if r.status_code == 200:
+        response_text = r.json().get("response", "")
+        # Geçmişi güncelle
+        if use_history and session_id:
+            llama_sessions[session_id] += f"\nKullanıcı: {prompt}\nAvukat: {response_text}"
+        return response_text
+    else:
+        raise Exception(f"Ollama API Hatası: {r.status_code}")
+
+
+def get_model_response(user_message, pdf_file_stream=None, session_id=None):
+    """
+    Ana RAG fonksiyonu - ChromaDB'den arama yapar ve qwen3 ile yanıt üretir
+    Conversation history tutar (session_id ile)
+    """
+    # Session ID yoksa veya geçersizse, conversation history olmadan çalış
+    use_history = session_id and session_id != 'null'
+
+    # PDF ile çalışma - RAG ile birleştirilmiş sistem
+    if pdf_file_stream:
+        pdf_context = _extract_text_from_pdf(pdf_file_stream)
+        if pdf_context is None:
+            return "Üzgünüm, yüklediğiniz PDF dosyasından metin çıkarılamadı. Lütfen dosyanın bozuk olmadığından veya şifre korumalı olmadığından emin olun ve tekrar deneyin."
+
+        if not pdf_context.strip():
+            return "Üzgünüm, yüklediğiniz PDF dosyasından metin çıkarılamadı. Dosya görüntü tabanlı (taranmış) bir PDF olabilir. Lütfen metin içeren bir PDF dosyası yükleyin."
+
+        # PDF içeriğini session'da sakla (sonraki mesajlarda kullanmak için)
+        if session_id and session_id != 'null':
+            pdf_contexts[session_id] = pdf_context
+            print(f"✅ PDF analiz edildi: {len(pdf_context)} karakter metin çıkarıldı")
+
+        # PDF yüklendiğinde de RAG kullan (hem PDF hem RAG bilgileri)
+        if vector_store and vector_store.collection and user_message:
+            # Hem PDF hem RAG kullan
+            try:
+                # 1. RAG'den arama yap
+                search_results = vector_store.smart_search(query=user_message, n_results=5)
+
+                # 2. Prompt oluştur (PDF içeriği ile birlikte)
+                system_prompt, user_prompt, source_details = create_smart_prompt(
+                    user_message,
+                    search_results,
+                    pdf_context=pdf_context
+                )
+
+                # 3. Llama'ya gönder
+                full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                response_text = call_llama(full_prompt, session_id, use_history)
+                
+                # Eğer cevap reddetme mesajı içeriyorsa kaynak ekleme
+                rejection_keywords = ["bu konuda danışmanlık veremem", "sadece tüketici hukuku", "yardımcı olamam"]
+                is_rejection = any(keyword in response_text.lower() for keyword in rejection_keywords)
+
+                if is_rejection:
+                    return response_text
+
+                # Eğer cevapta zaten "KAYNAKLAR" veya "Kaynaklar" varsa tekrar ekleme
+                if "KAYNAKLAR" not in response_text.upper() and "Kaynaklar" not in response_text and source_details:
+                    # Kaynakları güzel bir formatta göster
+                    sources_text = "\n\n---\n\n📚 Kaynaklar\n\n"
+                    for source in source_details:
+                        sources_text += f"• {source}\n"
+                    return response_text + sources_text
+                return response_text
+
+            except Exception as e:
+                print(f"⚠️ RAG ile PDF birleştirme hatası: {e}, sadece PDF ile devam ediliyor...")
+                # Hata durumunda sadece PDF ile devam et
+
+        # RAG yoksa veya hata varsa sadece PDF ile çalış
+        final_prompt = f"""
+Sen Türkiye'de çalışan bir avukatsın.
+
+Aşağıdaki metni yalnızca hukuki dayanak olarak kullan.
+Kullanıcıya avukat gibi, yol gösterici ve pratik cevap ver.
+
+METİN:
+{pdf_context}
+
+SORU:
+{user_message}
+"""
+
+        try:
+            return call_llama(final_prompt, session_id, use_history)
+        except Exception as e:
+            return f"Hata: {e}"
+
+    # ChromaDB RAG ile çalışma (PDF yoksa veya PDF yüklendikten sonraki mesajlar)
+    if vector_store and vector_store.collection:
+        # Eğer bu session'da daha önce PDF yüklendiyse, onu da kullan
+        session_pdf_context = None
+        if session_id and session_id != 'null' and session_id in pdf_contexts:
+            session_pdf_context = pdf_contexts[session_id]
+            print(f"📄 Daha önce yüklenen PDF içeriği kullanılıyor")
+
+        # 1. Semantic search yap
+        search_results = vector_store.smart_search(query=user_message, n_results=5)
+
+        if search_results['n_results'] == 0:
+            # Eğer PDF içeriği varsa sadece PDF ile devam et
+            if session_pdf_context:
+                print("⚠️ RAG'de ilgili doküman bulunamadı, sadece PDF içeriği kullanılıyor...")
+                final_prompt = f"""
+Sen Türkiye'de çalışan bir avukatsın.
+
+Aşağıdaki metni yalnızca hukuki dayanak olarak kullan.
+Kullanıcıya avukat gibi, yol gösterici ve pratik cevap ver.
+
+METİN:
+{session_pdf_context}
+
+SORU:
+{user_message}
+"""
+                try:
+                    return call_llama(final_prompt, session_id, use_history)
+                except Exception as e:
+                    return f"Hata: {e}"
+
+            # RAG'de sonuç yoksa, tüketici hukuku dışı bir soru olabilir
+            # Ancak sadece gerçekten alakasız konuları reddet (belediye kararları, idare hukuku vb.)
+            print("⚠️ RAG'de ilgili doküman bulunamadı")
+
+            # Belediye, idare hukuku gibi açıkça tüketici hukuku dışı konuları kontrol et
+            out_of_scope_keywords = ['belediye', 'idare', 'kamu görevlisi', 'boşanma', 'velayet', 'nafaka', 'miras', 'vasiyetname', 'işten çıkarma', 'fazla mesai']
+            is_out_of_scope = any(keyword in user_message.lower() for keyword in out_of_scope_keywords)
+
+            if is_out_of_scope:
+                print("🚫 Soru reddediliyor (açıkça tüketici hukuku dışı konu)...")
+                rejection_prompt = f"""
+Sen Türkiye'de aktif olarak çalışan bir avukatsın ve SADECE TÜKETİCİ HUKUKU konularında uzmanlaşmışsın.
+
+Kullanıcının sorusu:
+{user_message}
+
+Bu soru tüketici hukuku dışında bir konuyla ilgili görünüyor. Kibarca ve nazikçe, sadece tüketici hukuku konularında (Tüketicinin Korunması Hakkında Kanun, mesafeli satış, ayıplı mal/hizmet, garanti, cayma hakkı, tüketici kredileri, konut finansmanı, taksitle satış, doğrudan satış, abonelik sözleşmeleri, paket tur, devre tatil, ön ödemeli konut, tüketici hakem heyetleri, haksız şartlar, reklam ve haksız ticari uygulamalar vb.) danışmanlık verebildiğini belirt.
+Kısa ve samimi bir şekilde yaz.
+"""
+            else:
+                # RAG'de sonuç yok ama soru tüketici hukuku ile ilgili olabilir, normal prompt ile devam et
+                print("ℹ️ RAG'de sonuç yok ama soru tüketici hukuku ile ilgili olabilir, genel bilgi ile cevap veriliyor...")
+                rejection_prompt = None
+
+            if rejection_prompt:
+                try:
+                    return call_llama(rejection_prompt, session_id, use_history)
+                except Exception as e:
+                    return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı. Sadece tüketici hukuku konularında yardımcı olabilirim."
+            # rejection_prompt None ise, normal akışa devam et (aşağıdaki kod devam edecek)
+
+        # Sonuçların kalitesini kontrol et - eğer tüm distance'lar çok yüksekse, tüketici hukuku dışı soru olabilir
+        # NOT: Distance threshold'u gevşettik - sadece gerçekten alakasız soruları reddet
+        # Ayrıca sadece açıkça tüketici hukuku dışı konuları reddet
+        distances = search_results.get('distances', [])
+        out_of_scope_keywords = ['belediye', 'idare', 'kamu görevlisi', 'boşanma', 'velayet', 'nafaka', 'miras', 'vasiyetname', 'işten çıkarma', 'fazla mesai']
+        is_out_of_scope = any(keyword in user_message.lower() for keyword in out_of_scope_keywords)
+
+        if distances and all(dist > 750.0 for dist in distances) and search_results['n_results'] > 0 and is_out_of_scope:
+            # Sadece gerçekten çok alakasız sonuçlar varsa VE açıkça tüketici hukuku dışı konu ise reddet
+            print("⚠️ Bulunan dokümanlar soruyla çok alakasız görünüyor ve soru açıkça tüketici hukuku dışı")
+            print("🚫 Soru reddediliyor...")
+            rejection_prompt = f"""
+Sen Türkiye'de aktif olarak çalışan bir avukatsın ve SADECE TÜKETİCİ HUKUKU konularında uzmanlaşmışsın.
+
+Kullanıcının sorusu:
+{user_message}
+
+Bu soru tüketici hukuku dışında bir konuyla ilgili görünüyor. Kibarca ve nazikçe, sadece tüketici hukuku konularında (Tüketicinin Korunması Hakkında Kanun, mesafeli satış, ayıplı mal/hizmet, garanti, cayma hakkı, tüketici kredileri, konut finansmanı, taksitle satış, doğrudan satış, abonelik sözleşmeleri, paket tur, devre tatil, ön ödemeli konut, tüketici hakem heyetleri, haksız şartlar, reklam ve haksız ticari uygulamalar vb.) danışmanlık verebildiğini belirt.
+Kısa ve samimi bir şekilde yaz.
+"""
+            try:
+                return call_llama(rejection_prompt, session_id, use_history)
+            except Exception as e:
+                return "Üzgünüm, bu konuda yeterli kaliteli kaynak bulunamadı. Sadece tüketici hukuku konularında yardımcı olabilirim."
+
+        # 2. Prompt oluştur (PDF içeriği varsa onu da ekle)
+        system_prompt, user_prompt, source_details = create_smart_prompt(
+            user_message,
+            search_results,
+            pdf_context=session_pdf_context
+        )
+
+        # 3. Llama'ya gönder
+        try:
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            response_text = call_llama(full_prompt, session_id, use_history)
+
+            # Eğer cevap reddetme mesajı içeriyorsa kaynak ekleme
+            rejection_keywords = ["bu konuda danışmanlık veremem", "sadece tüketici hukuku", "yardımcı olamam"]
+            is_rejection = any(keyword in response_text.lower() for keyword in rejection_keywords)
+
+            if is_rejection:
+                return response_text
+
+            # Eğer cevapta zaten "KAYNAKLAR" veya "Kaynaklar" varsa tekrar ekleme
+            if "KAYNAKLAR" not in response_text.upper() and "Kaynaklar" not in response_text and source_details:
+                # Kaynakları güzel bir formatta göster
+                sources_text = "\n\n---\n\n📚 Kaynaklar\n\n"
+                for source in source_details:
+                    sources_text += f"• {source}\n"
+                return response_text + sources_text
+            return response_text
+
+        except Exception as e:
+            return f"Model cevabı üretirken hata: {e}"
+
+    # ChromaDB yoksa normal yanıt
+    try:
+        return call_llama(user_message, session_id, use_history)
+    except Exception as e:
+        return f"Hata: {e}"
+   
+'''
+
 def get_model_response(user_message, pdf_file_stream=None, session_id=None):
     """
     Ana RAG fonksiyonu - ChromaDB'den arama yapar ve Gemini ile yanıt üretir
@@ -720,6 +959,7 @@ def get_model_response(user_message, pdf_file_stream=None, session_id=None):
                 else:
                     full_prompt = f"{system_prompt}\n\n{user_prompt}"
                     response = gemini_model.generate_content(full_prompt)
+                
 
                 # Kaynakları ekle (eğer zaten yazılmamışsa)
                 response_text = response.text
@@ -936,3 +1176,5 @@ Kısa ve samimi bir şekilde yaz.
         return response.text
     except Exception as e:
         return f"Hata: {e}"
+
+        '''

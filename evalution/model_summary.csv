@@ -1,0 +1,8 @@
+﻿model_name,llm_context_precision_with_reference,context_recall,faithfulness,answer_relevancy,semantic_similarity,factual_correctness(mode=f1)
+DeepSeek-R1-7B,0.934,0.828,0.247,0.428,0.595,0.278
+Gemini-3.1-Flash-Lite,0.934,0.829,0.546,0.455,0.791,0.54
+Gemma-2-2B,0.93,0.837,0.326,0.404,0.787,0.39
+Gemma-3-4B,0.936,0.825,0.535,0.454,0.803,0.521
+Llama-3.1-8B,0.939,0.825,0.294,0.478,0.743,0.319
+Mistral-7B,0.934,0.821,0.273,0.436,0.771,0.278
+Qwen-3-7B,0.934,0.829,0.605,0.462,0.791,0.564

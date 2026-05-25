@@ -7,5 +7,5 @@ chromadb
 sentence-transformers
 torch
 transformers
-numpy<2.0.0
+numpy
 scikit-learn
