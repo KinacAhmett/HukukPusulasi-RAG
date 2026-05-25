@@ -44,8 +44,8 @@ env/
 *.sqlite
 *.sqlite3
 backend/chat.db
-# backend/legal_chroma_db/
-# **/legal_chroma_db/
+backend/legal_chroma_db/
+**/legal_chroma_db/
 
 # Large folders
 outputs/
