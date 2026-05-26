@@ -5,7 +5,6 @@
 ![React](https://img.shields.io/badge/React-Frontend-61DAFB?logo=react&logoColor=black)
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector%20Store-FF6B6B)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green)
 
 > **HukukPusulası** is a retrieval-augmented legal assistant for
 > Turkish consumer law, paired with a systematic evaluation of **locally deployable**
