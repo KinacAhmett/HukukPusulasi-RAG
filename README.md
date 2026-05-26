@@ -12,8 +12,9 @@
 > language models. It explores how reliable legal information can be delivered
 > **without sending sensitive data to a third-party cloud**.
 
-<!-- TODO: add a screenshot or short GIF of the chat interface here -->
-<!-- ![HukukPusulası interface](docs/screenshot.png) -->
+<img width="1842" height="883" alt="Ekran görüntüsü 2026-05-26 022914" src="https://github.com/user-attachments/assets/92b08403-0be2-472e-806d-aa0edfef05fc" />
+<img width="1851" height="923" alt="Ekran görüntüsü 2026-05-26 023112" src="https://github.com/user-attachments/assets/710650d4-ccb8-4548-9682-2e4c5508b656" />
+
 
 ---
 
@@ -22,7 +23,8 @@
 Accessing reliable, well-grounded answers in consumer law is hard: the information
 exists in legislation, but reading and interpreting it correctly is the real
 bottleneck. HukukPusulası addresses this with a **Retrieval-Augmented Generation
-(RAG)** pipeline that retrieves the relevant articles of Turkish consumer law and
+(RAG)** pipeline that retrieves the relevant a![Uploading Ekran görüntüsü 2026-05-26 022914.png…]()
+rticles of Turkish consumer law and
 generates answers grounded in those sources.
 
 The project has two halves:
