@@ -50,6 +50,8 @@ Computer Engineering, **TED University**.
 | **Graduation Project** | *Privacy-Preserving Retrieval-Augmented Generation for Turkish Consumer Law: Evaluation of Locally Deployable Language Models* |
 | **Institution** | TED University — Department of Computer Engineering |
 
+📄 **Full report:** [Read the report (PDF)](docs/HukukPusulasi.pdf)
+
 > This was a team project. The **React frontend, the SQLite data layer, and the
 > full evaluation** were my individual contribution — see [My Contribution](#-my-contribution).
 
