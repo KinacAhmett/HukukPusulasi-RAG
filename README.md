@@ -12,8 +12,6 @@
 > language models. It explores how reliable legal information can be delivered
 > **without sending sensitive data to a third-party cloud**.
 
-<!-- TODO: add a screenshot or short GIF of the chat interface here -->
-<!-- ![HukukPusulası interface](docs/screenshot.png) -->
 
 ---
 
@@ -270,8 +268,7 @@ This was a team project. My individual work spanned three areas:
 - Investigated the privacy-preserving angle: whether locally deployable
   open-source models can replace a proprietary cloud baseline.
 
-> ✏️ *Adjust the wording so it matches your exact role precisely — only claim
-> what you personally did.*
+
 
 ---
 
