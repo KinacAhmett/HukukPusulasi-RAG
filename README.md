@@ -283,11 +283,6 @@ This was a team project. My individual work spanned three areas:
 
 ---
 
-## 📄 License
-
-Released under the MIT License. See [`LICENSE`](./LICENSE) for details.
-
----
 
 ## 🔒 Privacy & Security Notes
 
