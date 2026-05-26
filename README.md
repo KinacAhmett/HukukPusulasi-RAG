@@ -12,6 +12,11 @@
 > language models. It explores how reliable legal information can be delivered
 > **without sending sensitive data to a third-party cloud**.
 
+## 🎨 Screenshots
+
+| Home Page | Chatbot Interface |
+|-----------|-------------------|
+| ![Home Page](https://github.com/KinacAhmett/HukukPusulasi-RAG/raw/main/docs/home-page.png) | ![Chatbot](https://github.com/KinacAhmett/HukukPusulasi-RAG/raw/main/docs/chatbot-interface.png) |
 
 ---
 
