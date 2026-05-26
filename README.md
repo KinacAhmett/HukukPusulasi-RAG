@@ -24,8 +24,7 @@
 Accessing reliable, well-grounded answers in consumer law is hard: the information
 exists in legislation, but reading and interpreting it correctly is the real
 bottleneck. HukukPusulası addresses this with a **Retrieval-Augmented Generation
-(RAG)** pipeline that retrieves the relevant a![Uploading Ekran görüntüsü 2026-05-26 022914.png…]()
-rticles of Turkish consumer law and
+(RAG)** pipeline that retrieves the relevant articles of Turkish consumer law and
 generates answers grounded in those sources.
 
 The project has two halves:
