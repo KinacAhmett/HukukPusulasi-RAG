@@ -16,7 +16,7 @@
 
 | Home Page | Chatbot Interface |
 |-----------|-------------------|
-| ![Home Page](https://github.com/KinacAhmett/HukukPusulasi-RAG/raw/main/docs/home-page.png) | ![Chatbot](https://github.com/KinacAhmett/HukukPusulasi-RAG/raw/main/docs/chatbot-interface.png) |
+| ![Home Page](https://github.com/KinacAhmett/HukukPusulasi-RAG/raw/main/docs/mainpage_interface.png) | ![Chatbot](https://github.com/KinacAhmett/HukukPusulasi-RAG/raw/main/docs/chat_interface.png) |
 
 ---
 
