@@ -116,15 +116,15 @@ proprietary cloud baseline closely enough to be a privacy-preserving alternative
 
 Per-model scores on the 200-question evaluation subset:
 
-| Model | Context Precision | Context Recall | Faithfulness | Answer Relevancy | Semantic Similarity | Factual Correctness (F1) |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Qwen-3-7B | 0.934 | 0.829 | **0.605** | 0.462 | 0.791 | **0.564** |
-| Gemini-3.1-Flash-Lite ¹ | 0.934 | 0.829 | 0.546 | 0.455 | 0.791 | 0.540 |
-| Gemma-3-4B | 0.936 | 0.825 | 0.535 | 0.454 | **0.803** | 0.521 |
-| Gemma-2-2B | 0.930 | **0.837** | 0.326 | 0.404 | 0.787 | 0.390 |
-| Llama-3.1-8B | **0.939** | 0.825 | 0.294 | **0.478** | 0.743 | 0.319 |
-| Mistral-7B | 0.934 | 0.821 | 0.273 | 0.436 | 0.771 | 0.278 |
-| DeepSeek-R1-7B | 0.934 | 0.828 | 0.247 | 0.428 | 0.595 | 0.278 |
+| Model | Faithfulness | Answer Relevancy | Semantic Similarity | Factual Correctness (F1) |
+|---|:---:|:---:|:---:|:---:|
+| Qwen-3-7B | **0.605** | 0.462 | 0.791 | **0.564** |
+| Gemini-3.1-Flash-Lite ¹ | 0.546 | 0.455 | 0.791 | 0.540 |
+| Gemma-3-4B | 0.535 | 0.454 | **0.803** | 0.521 |
+| Gemma-2-2B | 0.326 | 0.404 | 0.787 | 0.390 |
+| Llama-3.1-8B | 0.294 | **0.478** | 0.743 | 0.319 |
+| Mistral-7B | 0.273 | 0.436 | 0.771 | 0.278 |
+| DeepSeek-R1-7B | 0.247 | 0.428 | 0.595 | 0.278 |
 
 ¹ Proprietary cloud baseline. All other models are open-source and locally deployable.
 Bold marks the best score in each column.
