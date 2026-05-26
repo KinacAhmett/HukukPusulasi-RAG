@@ -245,6 +245,11 @@ HukukPusulasi/
 │   ├── HukukPusulasi_RAG.ipynb
 │   ├── .env.example
 │   └── README.md
+├── evaluation/               # Model evaluation and benchmarking
+│   ├── benchmark_*.csv
+│   ├── model_summary.csv
+│   ├── ragas_results.csv
+│   └── trial_run.py
 └── docker-compose.yml        # Docker Compose configuration
 ```
 

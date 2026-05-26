@@ -58,16 +58,22 @@ hukukPusulasi_veri_text/
 rag_files/
 code/indirme_ilerleme.json
 fineTuning/indirme_ilerleme.json
+
+# macOS system files
+.DS_Store
+
+# macOS system files
+.DS_Store
 combined3_reject_added.csv
 
 # Evaluation - Benchmark results and test scripts
-evalution/benchmark_*.csv
-evalution/judge_*.csv
-evalution/ragas_results.csv
-evalution/master_benchmark_results_with_contexts.csv
-evalution/scientific_test_set_200.csv
-evalution/run_*.py
-evalution/birlestirici.py
+evaluation/benchmark_*.csv
+evaluation/judge_*.csv
+evaluation/ragas_results.csv
+evaluation/master_benchmark_results_with_contexts.csv
+evaluation/scientific_test_set_200.csv
+evaluation/run_*.py
+evaluation/birlestirici.py
 
 # Editors / IDEs
 .vscode/
