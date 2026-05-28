@@ -103,13 +103,13 @@ proprietary cloud baseline closely enough to be a privacy-preserving alternative
   stayed around **0.93** and Context Recall around **0.83**. Retrieval is shared
   by the whole pipeline, so these barely move between models.
 - **The best open-source model matched or beat the proprietary baseline on every
-  metric.** Qwen-3-7B vs. Gemini-3.1-Flash-Lite: **+0.059** Faithfulness
+  metric.** Qwen-3-8B vs. Gemini-3.1-Flash-Lite: **+0.059** Faithfulness
   (0.605 vs. 0.546) and **+0.024** Factual Correctness (0.564 vs. 0.540), with a
   small edge on Answer Relevancy and a tie elsewhere.
-- **Qwen-3-7B was the strongest generator overall**, leading on both Faithfulness
+- **Qwen-3-8B was the strongest generator overall**, leading on both Faithfulness
   (0.605) and Factual Correctness (0.564).
 - **Model choice mattered enormously for faithfulness** — scores ranged from
-  0.605 (Qwen-3-7B) down to 0.247 (DeepSeek-R1-7B), roughly a 2.4× gap, even
+  0.605 (Qwen-3-8B) down to 0.247 (DeepSeek-R1-7B), roughly a 2.4× gap, even
   though every model received identical retrieved context.
 
 ### Results
@@ -118,7 +118,7 @@ Per-model scores on the 200-question evaluation subset:
 
 | Model | Faithfulness | Answer Relevancy | Semantic Similarity | Factual Correctness (F1) |
 |---|:---:|:---:|:---:|:---:|
-| Qwen-3-7B | **0.605** | 0.462 | 0.791 | **0.564** |
+| Qwen-3-8B | **0.605** | 0.462 | 0.791 | **0.564** |
 | Gemini-3.1-Flash-Lite ¹ | 0.546 | 0.455 | 0.791 | 0.540 |
 | Gemma-3-4B | 0.535 | 0.454 | **0.803** | 0.521 |
 | Gemma-2-2B | 0.326 | 0.404 | 0.787 | 0.390 |
